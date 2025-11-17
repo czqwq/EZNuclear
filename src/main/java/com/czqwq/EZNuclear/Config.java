@@ -1,4 +1,4 @@
-package com.myname.mymodid;
+package com.czqwq.EZNuclear;
 
 import java.io.File;
 

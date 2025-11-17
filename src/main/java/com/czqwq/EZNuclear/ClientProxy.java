@@ -1,4 +1,4 @@
-package com.myname.mymodid;
+package com.czqwq.EZNuclear;
 
 public class ClientProxy extends CommonProxy {
 

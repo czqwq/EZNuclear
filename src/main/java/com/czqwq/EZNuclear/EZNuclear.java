@@ -1,22 +1,26 @@
-package com.myname.mymodid;
+package com.czqwq.EZNuclear;
+
+import net.minecraftforge.common.MinecraftForge;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import com.czqwq.EZNuclear.data.PendingMeltdown;
+
+import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.SidedProxy;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
-import cpw.mods.fml.common.event.FMLServerStartingEvent;
 
-@Mod(modid = MyMod.MODID, version = Tags.VERSION, name = "MyMod", acceptedMinecraftVersions = "[1.7.10]")
-public class MyMod {
+@Mod(modid = EZNuclear.MODID, version = Tags.VERSION, name = "EZNulcear", acceptedMinecraftVersions = "[1.7.10]")
+public class EZNuclear {
 
-    public static final String MODID = "mymodid";
+    public static final String MODID = "EZNuclear";
     public static final Logger LOG = LogManager.getLogger(MODID);
 
-    @SidedProxy(clientSide = "com.myname.mymodid.ClientProxy", serverSide = "com.myname.mymodid.CommonProxy")
+    @SidedProxy(clientSide = "com.czqwq.EZNuclear.ClientProxy", serverSide = "com.czqwq.EZNuclear.CommonProxy")
     public static CommonProxy proxy;
 
     @Mod.EventHandler
@@ -30,6 +34,18 @@ public class MyMod {
     // load "Do your mod setup. Build whatever data structures you care about. Register recipes." (Remove if not needed)
     public void init(FMLInitializationEvent event) {
         proxy.init(event);
+        // register PendingMeltdown to listen for chat and server tick events
+        try {
+            PendingMeltdown handler = new PendingMeltdown();
+            MinecraftForge.EVENT_BUS.register(handler);
+            FMLCommonHandler.instance()
+                .bus()
+                .register(handler);
+            // FMLCommonHandler.instance().bus() may be used for other events if needed
+            LOG.info("PendingMeltdown registered to event bus");
+        } catch (Throwable t) {
+            LOG.warn("Failed to register PendingMeltdown: " + t.getMessage());
+        }
     }
 
     @Mod.EventHandler
@@ -38,9 +54,4 @@ public class MyMod {
         proxy.postInit(event);
     }
 
-    @Mod.EventHandler
-    // register server commands in this event handler (Remove if not needed)
-    public void serverStarting(FMLServerStartingEvent event) {
-        proxy.serverStarting(event);
-    }
 }
