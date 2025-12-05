@@ -2,7 +2,6 @@ package com.czqwq.EZNuclear.mixin;
 
 import java.lang.reflect.Field;
 
-import com.czqwq.EZNuclear.EZNuclear;
 import net.minecraft.util.ChunkCoordinates;
 import net.minecraft.world.World;
 
@@ -14,6 +13,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import com.brandon3055.brandonscore.common.handlers.ProcessHandler;
 import com.brandon3055.draconicevolution.common.tileentities.multiblocktiles.reactor.ReactorExplosion;
 import com.czqwq.EZNuclear.Config;
+import com.czqwq.EZNuclear.EZNuclear;
 import com.czqwq.EZNuclear.data.PendingMeltdown;
 
 @Mixin(ReactorExplosion.class)
@@ -100,8 +100,8 @@ public abstract class ReactorExplosionMixin {
                                     .getConstructor(World.class, int.class, int.class, int.class, double.class);
                                 newExp = ctor.newInstance(world, x, y, z, (double) fpower);
                             } catch (NoSuchMethodException nsme2) {
-                                EZNuclear.LOG.error(
-                                    "No suitable ReactorExplosion constructor found to recreate explosion");
+                                EZNuclear.LOG
+                                    .error("No suitable ReactorExplosion constructor found to recreate explosion");
                             }
                         }
 

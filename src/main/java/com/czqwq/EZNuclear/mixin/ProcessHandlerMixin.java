@@ -2,7 +2,6 @@ package com.czqwq.EZNuclear.mixin;
 
 import java.lang.reflect.Field;
 
-import com.czqwq.EZNuclear.EZNuclear;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -11,6 +10,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import com.brandon3055.brandonscore.common.handlers.IProcess;
 import com.brandon3055.brandonscore.common.handlers.ProcessHandler;
 import com.czqwq.EZNuclear.Config;
+import com.czqwq.EZNuclear.EZNuclear;
 import com.czqwq.EZNuclear.data.PendingMeltdown;
 
 @Mixin(ProcessHandler.class)
