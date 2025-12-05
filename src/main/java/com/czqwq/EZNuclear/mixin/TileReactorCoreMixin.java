@@ -49,7 +49,7 @@ public abstract class TileReactorCoreMixin {
                         if (thePlayer != null) {
                             Class<?> chatClass = Class.forName("net.minecraft.util.ChatComponentTranslation");
                             Object chat = chatClass.getConstructor(String.class, Object[].class)
-                                .newInstance(new Object[] { "info.ezunclear", new Object[0] });
+                                .newInstance("info.ezunclear", new Object[0]);
                             Class<?> iChatClass = Class.forName("net.minecraft.util.IChatComponent");
                             thePlayer.getClass()
                                 .getMethod("addChatMessage", iChatClass)
@@ -81,7 +81,7 @@ public abstract class TileReactorCoreMixin {
                                 if (thePlayer != null) {
                                     Class<?> chatClass = Class.forName("net.minecraft.util.ChatComponentTranslation");
                                     Object chat = chatClass.getConstructor(String.class, Object[].class)
-                                        .newInstance(new Object[] { "info.ezunclear.preventexplosion", new Object[0] });
+                                        .newInstance("info.ezunclear.preventexplosion", new Object[0]);
                                     Class<?> iChatClass = Class.forName("net.minecraft.util.IChatComponent");
                                     thePlayer.getClass()
                                         .getMethod("addChatMessage", iChatClass)
@@ -128,7 +128,7 @@ public abstract class TileReactorCoreMixin {
                         if (thePlayer != null) {
                             Class<?> chatClass = Class.forName("net.minecraft.util.ChatComponentTranslation");
                             Object chat = chatClass.getConstructor(String.class, Object[].class)
-                                .newInstance(new Object[] { "info.ezunclear", new Object[0] });
+                                .newInstance("info.ezunclear", new Object[0]);
                             Class<?> iChatClass = Class.forName("net.minecraft.util.IChatComponent");
                             thePlayer.getClass()
                                 .getMethod("addChatMessage", iChatClass)
@@ -163,12 +163,12 @@ public abstract class TileReactorCoreMixin {
                 worldServer = srvLookup.worldServers[sdim];
             }
             TileReactorCore reactor = null;
-            World world = null;
+            World world;
             if (worldServer != null) {
                 world = worldServer;
                 TileEntity fresh = worldServer.getTileEntity(sx, sy, sz);
                 if (fresh instanceof TileReactorCore) reactor = (TileReactorCore) fresh;
-            } else if (te != null) {
+            } else {
                 // fallback to original passed-in TE if worldServer unavailable
                 reactor = (te instanceof TileReactorCore) ? (TileReactorCore) te : null;
                 world = te.getWorldObj();
@@ -191,7 +191,7 @@ public abstract class TileReactorCoreMixin {
                     if (thePlayer != null) {
                         Class<?> chatClass = Class.forName("net.minecraft.util.ChatComponentTranslation");
                         Object chat = chatClass.getConstructor(String.class, Object[].class)
-                            .newInstance(new Object[] { "info.ezunclear.interact", new Object[0] });
+                            .newInstance("info.ezunclear.interact", new Object[0]);
                         Class<?> iChatClass = Class.forName("net.minecraft.util.IChatComponent");
                         thePlayer.getClass()
                             .getMethod("addChatMessage", iChatClass)
@@ -221,20 +221,7 @@ public abstract class TileReactorCoreMixin {
             } catch (Throwable t) {
                 // fallback: direct explosion
                 try {
-                    int totalFuel = 1000;
-                    try {
-                        java.lang.reflect.Field f1 = TileReactorCore.class.getField("reactorFuel");
-                        java.lang.reflect.Field f2 = TileReactorCore.class.getField("convertedFuel");
-                        int r = 0;
-                        int c = 0;
-                        if (reactor != null) {
-                            r = f1.getInt(reactor);
-                            c = f2.getInt(reactor);
-                        }
-                        totalFuel = r + c;
-                    } catch (Throwable ignored) {}
-
-                    float power = 2F + ((float) totalFuel / (10368 + 1F) * 18F);
+                    float power = getPower(reactor);
                     // create a direct Explosion and run it on the server thread – avoids
                     // ReactorExplosion/ProcessHandler
                     try {
@@ -259,5 +246,23 @@ public abstract class TileReactorCoreMixin {
                 }
             }
         };
+    }
+
+    private static float getPower(TileReactorCore reactor) {
+        int totalFuel = 1000;
+        try {
+            java.lang.reflect.Field f1 = TileReactorCore.class.getField("reactorFuel");
+            java.lang.reflect.Field f2 = TileReactorCore.class.getField("convertedFuel");
+            int r = 0;
+            int c = 0;
+            if (reactor != null) {
+                r = f1.getInt(reactor);
+                c = f2.getInt(reactor);
+            }
+            totalFuel = r + c;
+        } catch (Throwable ignored) {}
+
+        float power = 2F + ((float) totalFuel / (10368 + 1F) * 18F);
+        return power;
     }
 }
