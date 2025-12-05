@@ -10,6 +10,7 @@ elytraModpackVersion {
 
 dependencies {
     implementation(gtnhDev("GT5-Unofficial"))
+    implementation(gtnhDev("BrandonsCore"))
     implementation(gtnhDev("NewHorizonsCoreMod"))
     implementation(gtnhDev("Mobs-Info"))
     implementation(gtnhDev("Infernal-Mobs"))
