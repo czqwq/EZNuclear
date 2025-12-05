@@ -12,9 +12,6 @@ import net.minecraft.world.Explosion;
 import net.minecraftforge.event.ServerChatEvent;
 import net.minecraftforge.event.world.ExplosionEvent;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import cpw.mods.fml.common.eventhandler.EventPriority;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -27,7 +24,7 @@ public class PendingMeltdown {
     private static final Set<PosKey> POSITIONS = Collections.newSetFromMap(new ConcurrentHashMap<>());
     // Re-entry set: positions allowed to bypass interception once
     private static final Set<PosKey> REENTRY = Collections.newSetFromMap(new ConcurrentHashMap<>());
-    private static final Logger LOGGER = LogManager.getLogger(PendingMeltdown.class);
+    // private static final Logger LOGGER = LogManager.getLogger(PendingMeltdown.class);
     // scanning interval (ticks) to check for rogue reactors; low frequency to reduce overhead
     private static final int SCAN_INTERVAL_TICKS = 20; // once per second
     private int tickCounter = 0;
@@ -95,12 +92,12 @@ public class PendingMeltdown {
         boolean added = POSITIONS.add(key);
         if (!added) return false;
         long executeAt = System.currentTimeMillis() + Math.max(0, delayMs);
-        LOGGER.info(
-            "PendingMeltdown.schedule: scheduling task at {} dim={} delayMs={} execAt={}",
-            pos,
-            dimension,
-            delayMs,
-            executeAt);
+        // LOGGER.info(
+        // "PendingMeltdown.schedule: scheduling task at {} dim={} delayMs={} execAt={}",
+        // pos,
+        // dimension,
+        // delayMs,
+        // executeAt);
         SCHEDULED.add(new Scheduled(executeAt, task, key));
         return true;
     }
@@ -135,13 +132,13 @@ public class PendingMeltdown {
         List<Scheduled> copy = new ArrayList<>(SCHEDULED);
         SCHEDULED.clear();
         POSITIONS.clear();
-        LOGGER.info("PendingMeltdown.executeAllNow: executing {} tasks immediately", copy.size());
+        // LOGGER.info("PendingMeltdown.executeAllNow: executing {} tasks immediately", copy.size());
         for (Scheduled s : copy) {
             try {
-                LOGGER.info("PendingMeltdown.executeAllNow: running task for pos {}", s.pos);
+                // LOGGER.info("PendingMeltdown.executeAllNow: running task for pos {}", s.pos);
                 s.task.run();
             } catch (Throwable t) {
-                LOGGER.error("Error running meltdown task", t);
+                // LOGGER.error("Error running meltdown task", t);
             }
         }
     }
@@ -164,23 +161,23 @@ public class PendingMeltdown {
             int ey = (int) Math.floor(explosion.explosionY);
             int ez = (int) Math.floor(explosion.explosionZ);
             ChunkCoordinates pos = new ChunkCoordinates(ex, ey, ez);
-            LOGGER.info("PendingMeltdown.onExplosionStart: detected explosion at {}", pos);
+            // LOGGER.info("PendingMeltdown.onExplosionStart: detected explosion at {}", pos);
 
             // If reentry present, allow
             if (consumeReentry(pos)) {
-                LOGGER.info("PendingMeltdown.onExplosionStart: reentry present for {}, allowing explosion", pos);
+                // LOGGER.info("PendingMeltdown.onExplosionStart: reentry present for {}, allowing explosion", pos);
                 return;
             }
 
             // Cancel and reschedule via scheduler
             event.setCanceled(true);
-            LOGGER.info(
-                "PendingMeltdown.onExplosionStart: cancelled explosive at {}, scheduling via PendingMeltdown",
-                pos);
+            // LOGGER.info(
+            // "PendingMeltdown.onExplosionStart: cancelled explosive at {}, scheduling via PendingMeltdown",
+            // pos);
             schedule(pos, () -> {
                 try {
                     // recreate and trigger explosion on server thread
-                    LOGGER.info("PendingMeltdown: executing scheduled explosion for {}", pos);
+                    // LOGGER.info("PendingMeltdown: executing scheduled explosion for {}", pos);
                     markReentry(pos);
                     // re-create explosion instance using existing Explosion class if necessary
                     // Find the world field on Explosion via reflection (common names: world, worldObj)
@@ -268,17 +265,18 @@ public class PendingMeltdown {
                         e.doExplosionA();
                         e.doExplosionB(true);
                     } else {
-                        LOGGER.warn(
-                            "PendingMeltdown: could not locate Explosion.world field; skipping scheduled explosion for {}",
-                            pos);
+                        // LOGGER.warn(
+                        // "PendingMeltdown: could not locate Explosion.world field; skipping scheduled explosion for
+                        // {}",
+                        // pos);
                     }
                 } catch (Throwable t) {
-                    LOGGER.warn("Failed to perform scheduled explosion for {}: {}", pos, t.getMessage());
+                    // LOGGER.warn("Failed to perform scheduled explosion for {}: {}", pos, t.getMessage());
                 }
             }, 5000L);
 
         } catch (Throwable t) {
-            LOGGER.warn("onExplosionStart handler failed: {}", t.getMessage());
+            // LOGGER.warn("onExplosionStart handler failed: {}", t.getMessage());
         }
     }
 
@@ -300,15 +298,15 @@ public class PendingMeltdown {
             // remove scheduled entries first to avoid race when tasks reschedule
             SCHEDULED.removeAll(due);
             for (Scheduled s : due) {
-                LOGGER.info(
-                    "PendingMeltdown.onServerTick: executing scheduled task for pos {} (scheduledAt={} now={})",
-                    s.pos,
-                    s.executeAtMillis,
-                    now);
+                // LOGGER.info(
+                // "PendingMeltdown.onServerTick: executing scheduled task for pos {} (scheduledAt={} now={})",
+                // s.pos,
+                // s.executeAtMillis,
+                // now);
                 try {
                     s.task.run();
                 } catch (Throwable t) {
-                    LOGGER.error("Error running scheduled meltdown task", t);
+                    // LOGGER.error("Error running scheduled meltdown task", t);
                 } finally {
                     // free the position so future meltdowns can be scheduled there
                     POSITIONS.remove(s.pos);
@@ -361,10 +359,10 @@ public class PendingMeltdown {
 
                                 if (!Double.isNaN(temp) && temp > 2000.0) {
                                     // schedule meltdown if not already scheduled
-                                    LOGGER.info(
-                                        "PendingMeltdown.scan: reactor at {} has temp={} >2000; scheduling meltdown",
-                                        pos,
-                                        temp);
+                                    // LOGGER.info(
+                                    // "PendingMeltdown.scan: reactor at {} has temp={} >2000; scheduling meltdown",
+                                    // pos,
+                                    // temp);
                                     // schedule with same behavior as mixin: send messages and reinvoke
                                     final int fx = x;
                                     final int fy = y;
@@ -422,18 +420,18 @@ public class PendingMeltdown {
                                                         .getMethod("addProcess", iProcessClass);
                                                     addMethod.invoke(null, newExp);
                                                 } catch (Throwable t) {
-                                                    LOGGER.warn(
-                                                        "Failed to schedule ReactorExplosion via reflection: {}",
-                                                        t.getMessage());
+                                                    // LOGGER.warn(
+                                                    // "Failed to schedule ReactorExplosion via reflection: {}",
+                                                    // t.getMessage());
                                                 }
                                             } catch (Throwable t) {
-                                                LOGGER.warn(
-                                                    "Failed to create ReactorExplosion fallback: {}",
-                                                    t.getMessage());
+                                                // LOGGER.warn(
+                                                // "Failed to create ReactorExplosion fallback: {}",
+                                                // t.getMessage());
                                             }
 
                                         } catch (Throwable t) {
-                                            LOGGER.warn("Scheduled scan-meltdown task failed: {}", t.getMessage());
+                                            // LOGGER.warn("Scheduled scan-meltdown task failed: {}", t.getMessage());
                                         }
                                     }, 5000L);
                                 }
@@ -444,7 +442,7 @@ public class PendingMeltdown {
                     }
                 }
             } catch (Throwable t) {
-                LOGGER.warn("PendingMeltdown.scan failed: {}", t.getMessage());
+                // LOGGER.warn("PendingMeltdown.scan failed: {}", t.getMessage());
             }
         }
     }

@@ -2,11 +2,10 @@ package com.czqwq.EZNuclear.mixin;
 
 import java.lang.reflect.Field;
 
+import com.czqwq.EZNuclear.EZNuclear;
 import net.minecraft.util.ChunkCoordinates;
 import net.minecraft.world.World;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -20,7 +19,7 @@ import com.czqwq.EZNuclear.data.PendingMeltdown;
 @Mixin(ReactorExplosion.class)
 public abstract class ReactorExplosionMixin {
 
-    private static final Logger LOGGER = LogManager.getLogger("EZNuclear.ReactorExplosionMixin");
+    // private static final Logger LOGGER = LogManager.getLogger("EZNuclear.ReactorExplosionMixin");
 
     // Try both common names: some builds use "run", others use "onRun" (or obfuscated names).
     // Using an array makes the injector tolerant to either name at runtime.
@@ -33,10 +32,10 @@ public abstract class ReactorExplosionMixin {
         }
 
         try {
-            LOGGER.info(
-                "ReactorExplosion.run intercepted for instance: {}",
-                this.getClass()
-                    .getName());
+            // LOGGER.info(
+            // "ReactorExplosion.run intercepted for instance: {}",
+            // this.getClass()
+            // .getName());
             // try to read x, y, z and world from fields
             Class<?> cls = this.getClass();
             Field xField = cls.getDeclaredField("x");
@@ -55,7 +54,7 @@ public abstract class ReactorExplosionMixin {
             ChunkCoordinates pos = new ChunkCoordinates(x, y, z);
             // If PendingMeltdown already scheduled reentry, allow run to proceed
             if (PendingMeltdown.consumeReentry(pos)) {
-                LOGGER.info("ReactorExplosionMixin: reentry present for {}. allowing run", pos);
+                // LOGGER.info("ReactorExplosionMixin: reentry present for {}. allowing run", pos);
                 return; // allow original run
             }
 
@@ -101,9 +100,8 @@ public abstract class ReactorExplosionMixin {
                                     .getConstructor(World.class, int.class, int.class, int.class, double.class);
                                 newExp = ctor.newInstance(world, x, y, z, (double) fpower);
                             } catch (NoSuchMethodException nsme2) {
-                                LOGGER.warn(
-                                    "No suitable ReactorExplosion constructor found to recreate explosion at {}",
-                                    pos);
+                                EZNuclear.LOG.error(
+                                    "No suitable ReactorExplosion constructor found to recreate explosion");
                             }
                         }
 
@@ -115,24 +113,24 @@ public abstract class ReactorExplosionMixin {
                                 java.lang.reflect.Method addMethod = ProcessHandler.class
                                     .getMethod("addProcess", iProcessClass);
                                 addMethod.invoke(null, newExp);
-                                LOGGER.info("ReactorExplosionMixin: scheduled re-added ReactorExplosion at {}", pos);
+                                // LOGGER.info("ReactorExplosionMixin: scheduled re-added ReactorExplosion at {}", pos);
                             } catch (Throwable t) {
-                                LOGGER
-                                    .warn("Failed to schedule ReactorExplosion via ProcessHandler: {}", t.getMessage());
+                                // LOGGER
+                                // .warn("Failed to schedule ReactorExplosion via ProcessHandler: {}", t.getMessage());
                             }
                         }
                     } catch (Throwable t) {
-                        LOGGER.warn("Error creating ReactorExplosion instance: {}", t.getMessage());
+                        // LOGGER.warn("Error creating ReactorExplosion instance: {}", t.getMessage());
                     }
                 } catch (Throwable t) {
-                    LOGGER.warn("Scheduled ReactorExplosion task failed: {}", t.getMessage());
+                    // LOGGER.warn("Scheduled ReactorExplosion task failed: {}", t.getMessage());
                 }
             }, 0L);
 
         } catch (NoSuchFieldException nsfe) {
             // if fields not found, don't intercept
         } catch (Throwable t) {
-            LOGGER.warn("ReactorExplosionMixin interception failed: {}", t.getMessage());
+            // LOGGER.warn("ReactorExplosionMixin interception failed: {}", t.getMessage());
         }
     }
 }

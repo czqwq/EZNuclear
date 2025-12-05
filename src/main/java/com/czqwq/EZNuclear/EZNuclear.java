@@ -42,9 +42,9 @@ public class EZNuclear {
                 .bus()
                 .register(handler);
             // FMLCommonHandler.instance().bus() may be used for other events if needed
-            LOG.info("PendingMeltdown registered to event bus");
+            // LOG.info("PendingMeltdown registered to event bus");
         } catch (Throwable t) {
-            LOG.warn("Failed to register PendingMeltdown: " + t.getMessage());
+            // LOG.warn("Failed to register PendingMeltdown: " + t.getMessage());
         }
     }
 
