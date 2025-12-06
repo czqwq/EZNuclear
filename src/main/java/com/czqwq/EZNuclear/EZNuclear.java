@@ -20,6 +20,10 @@ public class EZNuclear {
     public static final String MODID = "EZNuclear";
     public static final Logger LOG = LogManager.getLogger(MODID);
 
+    static {
+        LOG.info("EZNuclear mod class loaded");
+    }
+
     @SidedProxy(clientSide = "com.czqwq.EZNuclear.ClientProxy", serverSide = "com.czqwq.EZNuclear.CommonProxy")
     public static CommonProxy proxy;
 
@@ -27,12 +31,14 @@ public class EZNuclear {
     // preInit "Run before anything else. Read your config, create blocks, items, etc, and register them with the
     // GameRegistry." (Remove if not needed)
     public void preInit(FMLPreInitializationEvent event) {
+        LOG.info("EZNuclear preInit phase");
         proxy.preInit(event);
     }
 
     @Mod.EventHandler
     // load "Do your mod setup. Build whatever data structures you care about. Register recipes." (Remove if not needed)
     public void init(FMLInitializationEvent event) {
+        LOG.info("EZNuclear init phase");
         proxy.init(event);
         // register PendingMeltdown to listen for chat and server tick events
         try {
@@ -51,6 +57,7 @@ public class EZNuclear {
     @Mod.EventHandler
     // postInit "Handle interaction with other mods, complete your setup based on this." (Remove if not needed)
     public void postInit(FMLPostInitializationEvent event) {
+        LOG.info("EZNuclear postInit phase");
         proxy.postInit(event);
     }
 

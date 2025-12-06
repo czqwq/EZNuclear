@@ -1,15 +1,14 @@
 {
-  "required": true,
+  "required": false,
   "minVersion": "0.7.11",
   "package": "com.czqwq.EZNuclear.mixin",
   "refmap": "mixins.eznuclear.refmap.json",
   "compatibilityLevel": "JAVA_8",
-  "mixins": [
-    "IC2ExplosionMixin"
-  ],
+  "plugin": "com.czqwq.EZNuclear.EZNuclearMixinPlugin",
+  "mixins": [],
   "client": [],
-  "server": ["IC2ExplosionMixin"],
+  "server": [],
   "injectors": {
-    "defaultRequire": 1
+    "defaultRequire": 0
   }
 }

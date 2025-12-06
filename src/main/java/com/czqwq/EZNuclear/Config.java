@@ -8,6 +8,7 @@ public class Config {
 
     public static boolean IC2Explosion = true;
     public static boolean DEExplosion = true;
+    public static boolean DebugMode = false;
 
     public static void synchronizeConfiguration(File configFile) {
         Configuration configuration = new Configuration(configFile);
@@ -21,6 +22,11 @@ public class Config {
             Configuration.CATEGORY_GENERAL,
             DEExplosion,
             "Allow Draconic Evolution nuclear explosions");
+        DebugMode = configuration.getBoolean(
+            "DebugMode",
+            Configuration.CATEGORY_GENERAL,
+            DebugMode,
+            "Enable debug logging for EZNuclear mod");
 
         if (configuration.hasChanged()) {
             configuration.save();
