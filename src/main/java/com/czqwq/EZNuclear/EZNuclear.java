@@ -22,7 +22,9 @@ import cpw.mods.fml.common.event.FMLPreInitializationEvent;
     dependencies = "required-after:IC2;" + "required-after:structurelib;"
         + "required-after:dreamcraft;"
         + "required-after:gregtech;"
-        + "required-after:BrandonsCore;")
+        + "required-after:BrandonsCore;"
+        + "required-after:DraconicEvolution;")
+
 public class EZNuclear {
 
     public static final String MODID = "EZNuclear";
