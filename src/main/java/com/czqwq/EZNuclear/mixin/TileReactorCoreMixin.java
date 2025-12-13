@@ -21,7 +21,8 @@ import com.czqwq.EZNuclear.data.PendingMeltdown;
 
 import gregtech.api.util.GTUtility;
 
-@Mixin(TileReactorCore.class)
+@SuppressWarnings("UnusedMixin")
+@Mixin(value = TileReactorCore.class, remap = false)
 public abstract class TileReactorCoreMixin {
 
     // reentry is managed by PendingMeltdown to keep a single source of truth
@@ -249,7 +250,7 @@ public abstract class TileReactorCoreMixin {
     }
 
     private static float getPower(TileReactorCore reactor) {
-        int totalFuel = 1000;
+        int totalFuel = 10000;
         try {
             java.lang.reflect.Field f1 = TileReactorCore.class.getField("reactorFuel");
             java.lang.reflect.Field f2 = TileReactorCore.class.getField("convertedFuel");
@@ -262,7 +263,6 @@ public abstract class TileReactorCoreMixin {
             totalFuel = r + c;
         } catch (Throwable ignored) {}
 
-        float power = 2F + ((float) totalFuel / (10368 + 1F) * 18F);
-        return power;
+        return 2F + ((float) totalFuel / (10368 + 1F) * 18F);
     }
 }
