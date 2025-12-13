@@ -90,7 +90,7 @@ public abstract class ReactorExplosionMixin {
                     PendingMeltdown.markReentry(pos);
                     try {
                         // find constructor ReactorExplosion(World,int,int,int,float)
-                        Class<?> reClass = com.brandon3055.draconicevolution.common.tileentities.multiblocktiles.reactor.ReactorExplosion.class;
+                        Class<?> reClass = ReactorExplosion.class;
                         java.lang.reflect.Constructor<?> ctor = null;
                         Object newExp = null;
                         try {

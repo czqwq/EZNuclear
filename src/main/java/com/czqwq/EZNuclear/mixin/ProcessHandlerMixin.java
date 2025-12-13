@@ -21,14 +21,6 @@ public class ProcessHandlerMixin {
 
     @Inject(method = "addProcess", at = @At("HEAD"), cancellable = true, remap = false)
     private static void onAddProcess(IProcess process, CallbackInfo ci) {
-        // 测试类是否存在
-        try {
-            Class.forName("com.brandon3055.brandonscore.common.handlers.ProcessHandler");
-            EZNuclear.LOG.info("ProcessHandler class found!");
-        } catch (ClassNotFoundException e) {
-            EZNuclear.LOG.warn("ProcessHandler class not found!");
-            return;
-        }
 
         if (process == null) return;
         try {
