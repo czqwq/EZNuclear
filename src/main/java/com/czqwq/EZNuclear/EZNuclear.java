@@ -14,7 +14,15 @@ import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 
-@Mod(modid = EZNuclear.MODID, version = Tags.VERSION, name = "EZNulcear", acceptedMinecraftVersions = "[1.7.10]")
+@Mod(
+    modid = EZNuclear.MODID,
+    version = Tags.VERSION,
+    name = "EZNulcear",
+    acceptedMinecraftVersions = "[1.7.10]",
+    dependencies = "required-after:IC2;" + "required-after:structurelib;"
+        + "required-after:dreamcraft;"
+        + "required-after:gregtech;"
+        + "required-after:BrandonsCore;")
 public class EZNuclear {
 
     public static final String MODID = "EZNuclear";
