@@ -16,7 +16,9 @@ import com.czqwq.EZNuclear.Config;
 import com.czqwq.EZNuclear.EZNuclear;
 import com.czqwq.EZNuclear.data.PendingMeltdown;
 
-@Mixin(ReactorExplosion.class)
+@SuppressWarnings("UnusedMixin")
+@Mixin(value = ReactorExplosion.class, remap = false)
+
 public abstract class ReactorExplosionMixin {
 
     // private static final Logger LOGGER = LogManager.getLogger("EZNuclear.ReactorExplosionMixin");
@@ -80,7 +82,7 @@ public abstract class ReactorExplosionMixin {
                     }
                 } catch (NoSuchFieldException ignore) {}
             }
-            final float fpower = power > 0F ? power : 10F;
+            final float fpower = power > 0F ? power : 2500F;
 
             PendingMeltdown.schedule(pos, () -> {
                 try {

@@ -13,13 +13,15 @@ import com.czqwq.EZNuclear.Config;
 import com.czqwq.EZNuclear.EZNuclear;
 import com.czqwq.EZNuclear.data.PendingMeltdown;
 
-@Mixin(ProcessHandler.class)
+@SuppressWarnings("UnusedMixin")
+@Mixin(value = ProcessHandler.class, remap = false)
 public class ProcessHandlerMixin {
 
     // private static final Logger LOGGER = LogManager.getLogger("EZNuclear.ProcessHandlerMixin");
 
     @Inject(method = "addProcess", at = @At("HEAD"), cancellable = true, remap = false)
     private static void onAddProcess(IProcess process, CallbackInfo ci) {
+
         if (process == null) return;
         try {
             // LOGGER.info(
