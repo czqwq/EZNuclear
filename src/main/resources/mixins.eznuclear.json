@@ -4,11 +4,9 @@
   "package": "com.czqwq.EZNuclear.mixin",
   "refmap": "mixins.eznuclear.refmap.json",
   "compatibilityLevel": "JAVA_8",
-  "mixins": [
-    "IC2ExplosionMixin"
-  ],
+  "mixins": [],
   "client": [],
-  "server": ["IC2ExplosionMixin"],
+  "server": [],
   "injectors": {
     "defaultRequire": 1
   }

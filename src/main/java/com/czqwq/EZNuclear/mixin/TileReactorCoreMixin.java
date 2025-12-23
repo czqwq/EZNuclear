@@ -18,6 +18,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import com.brandon3055.draconicevolution.common.tileentities.multiblocktiles.reactor.TileReactorCore;
 import com.czqwq.EZNuclear.Config;
 import com.czqwq.EZNuclear.data.PendingMeltdown;
+import com.czqwq.EZNuclear.util.MessageUtils;
 
 import gregtech.api.util.GTUtility;
 
@@ -41,27 +42,10 @@ public abstract class TileReactorCoreMixin {
                     }
                 } else {
                     // For single player, try to send message to client
-                    try {
-                        Class<?> mcClass = Class.forName("net.minecraft.client.Minecraft");
-                        Object mc = mcClass.getMethod("getMinecraft")
-                            .invoke(null);
-                        Object thePlayer = mcClass.getField("thePlayer")
-                            .get(mc);
-                        if (thePlayer != null) {
-                            Class<?> chatClass = Class.forName("net.minecraft.util.ChatComponentTranslation");
-                            Object chat = chatClass.getConstructor(String.class, Object[].class)
-                                .newInstance("info.ezunclear", new Object[0]);
-                            Class<?> iChatClass = Class.forName("net.minecraft.util.IChatComponent");
-                            thePlayer.getClass()
-                                .getMethod("addChatMessage", iChatClass)
-                                .invoke(thePlayer, chat);
-                        }
-                    } catch (Throwable t) {
-                        // Reflection failed, skipping client chat message
-                    }
+                    MessageUtils.sendToSinglePlayer("info.ezunclear");
                 }
 
-                // Schedule the second message after 5 seconds
+                // Schedule the second message after delay
                 PendingMeltdown.schedule(new ChunkCoordinates(0, 0, 0), () -> {
                     MinecraftServer srv = MinecraftServer.getServer();
                     if (srv != null) {
@@ -73,27 +57,10 @@ public abstract class TileReactorCoreMixin {
                                     StatCollector.translateToLocal("info.ezunclear.preventexplosion"));
                             }
                         } else {
-                            try {
-                                Class<?> mcClass = Class.forName("net.minecraft.client.Minecraft");
-                                Object mc = mcClass.getMethod("getMinecraft")
-                                    .invoke(null);
-                                Object thePlayer = mcClass.getField("thePlayer")
-                                    .get(mc);
-                                if (thePlayer != null) {
-                                    Class<?> chatClass = Class.forName("net.minecraft.util.ChatComponentTranslation");
-                                    Object chat = chatClass.getConstructor(String.class, Object[].class)
-                                        .newInstance("info.ezunclear.preventexplosion", new Object[0]);
-                                    Class<?> iChatClass = Class.forName("net.minecraft.util.IChatComponent");
-                                    thePlayer.getClass()
-                                        .getMethod("addChatMessage", iChatClass)
-                                        .invoke(thePlayer, chat);
-                                }
-                            } catch (Throwable t) {
-                                // Reflection failed, skipping client chat message
-                            }
+                            MessageUtils.sendToSinglePlayer("info.ezunclear.preventexplosion");
                         }
                     }
-                }, 5000L);
+                }, Config.explosionDelaySeconds * 1000L);
             }
 
             ci.cancel();
@@ -107,9 +74,15 @@ public abstract class TileReactorCoreMixin {
             return; // allow original goBoom
         }
 
-        if (PendingMeltdown.schedule(pos, createScheduledTask(te), 5000L)) {
+        if (PendingMeltdown.schedule(pos, createScheduledTask(te), Config.explosionDelaySeconds * 1000L)) {
             ci.cancel();
             PendingMeltdown.schedule(pos, () -> {}, 0L); // touch pos to log scheduling if needed
+
+            // Check if manual trigger is required
+            if (Config.requireCommandToExplode) {
+                // Mark this position for manual trigger
+                PendingMeltdown.markManualTrigger(pos);
+            }
 
             MinecraftServer server = MinecraftServer.getServer();
             if (server != null && !server.isSinglePlayer()) {
@@ -120,24 +93,7 @@ public abstract class TileReactorCoreMixin {
             } else {
                 World world = te.getWorldObj();
                 if (world != null && world.isRemote) {
-                    try {
-                        Class<?> mcClass = Class.forName("net.minecraft.client.Minecraft");
-                        Object mc = mcClass.getMethod("getMinecraft")
-                            .invoke(null);
-                        Object thePlayer = mcClass.getField("thePlayer")
-                            .get(mc);
-                        if (thePlayer != null) {
-                            Class<?> chatClass = Class.forName("net.minecraft.util.ChatComponentTranslation");
-                            Object chat = chatClass.getConstructor(String.class, Object[].class)
-                                .newInstance("info.ezunclear", new Object[0]);
-                            Class<?> iChatClass = Class.forName("net.minecraft.util.IChatComponent");
-                            thePlayer.getClass()
-                                .getMethod("addChatMessage", iChatClass)
-                                .invoke(thePlayer, chat);
-                        }
-                    } catch (Throwable t) {
-                        // Reflection failed, skipping client chat message
-                    }
+                    MessageUtils.sendToSinglePlayer("info.ezunclear");
                 } else if (server != null) {
                     List<EntityPlayerMP> players = server.getConfigurationManager().playerEntityList;
                     for (EntityPlayerMP p : players) {
@@ -175,41 +131,67 @@ public abstract class TileReactorCoreMixin {
                 world = te.getWorldObj();
             }
 
-            // send second message
-            MinecraftServer srv = MinecraftServer.getServer();
-            if (srv != null && !srv.isSinglePlayer()) {
-                List<EntityPlayerMP> players = srv.getConfigurationManager().playerEntityList;
-                for (EntityPlayerMP p : players) {
-                    GTUtility.sendChatToPlayer(p, StatCollector.translateToLocal("info.ezunclear.interact"));
-                }
-            } else if (world != null && world.isRemote) {
-                try {
-                    Class<?> mcClass = Class.forName("net.minecraft.client.Minecraft");
-                    Object mc = mcClass.getMethod("getMinecraft")
-                        .invoke(null);
-                    Object thePlayer = mcClass.getField("thePlayer")
-                        .get(mc);
-                    if (thePlayer != null) {
-                        Class<?> chatClass = Class.forName("net.minecraft.util.ChatComponentTranslation");
-                        Object chat = chatClass.getConstructor(String.class, Object[].class)
-                            .newInstance("info.ezunclear.interact", new Object[0]);
-                        Class<?> iChatClass = Class.forName("net.minecraft.util.IChatComponent");
-                        thePlayer.getClass()
-                            .getMethod("addChatMessage", iChatClass)
-                            .invoke(thePlayer, chat);
+            // Check if manual trigger is required
+            ChunkCoordinates pos = new ChunkCoordinates(sx, sy, sz);
+            if (Config.requireCommandToExplode) {
+                // If manual trigger is required, mark this position for manual trigger
+                PendingMeltdown.markManualTrigger(pos, sdim);
+
+                // Schedule a task that sends the interaction message after delay
+                PendingMeltdown.schedule(pos, () -> {
+                    MinecraftServer srv = MinecraftServer.getServer();
+                    if (srv != null && !srv.isSinglePlayer()) {
+                        List<EntityPlayerMP> players = srv.getConfigurationManager().playerEntityList;
+                        for (EntityPlayerMP p : players) {
+                            GTUtility.sendChatToPlayer(p, StatCollector.translateToLocal("info.ezunclear.interact"));
+                        }
+                    } else if (world != null && world.isRemote) {
+                        MessageUtils.sendToSinglePlayer("info.ezunclear.interact");
+                    } else if (srv != null) {
+                        List<EntityPlayerMP> players = srv.getConfigurationManager().playerEntityList;
+                        for (EntityPlayerMP p : players) {
+                            GTUtility.sendChatToPlayer(p, StatCollector.translateToLocal("info.ezunclear.interact"));
+                        }
                     }
-                } catch (Throwable t) {
-                    // Reflection failed, skipping client chat message
+                }, Config.explosionDelaySeconds * 1000L);
+
+                // Send the initial message and return without exploding immediately
+                MinecraftServer srv = MinecraftServer.getServer();
+                if (srv != null && !srv.isSinglePlayer()) {
+                    List<EntityPlayerMP> players = srv.getConfigurationManager().playerEntityList;
+                    for (EntityPlayerMP p : players) {
+                        GTUtility.sendChatToPlayer(p, StatCollector.translateToLocal("info.ezunclear"));
+                    }
+                } else if (world != null && world.isRemote) {
+                    MessageUtils.sendToSinglePlayer("info.ezunclear");
+                } else if (srv != null) {
+                    List<EntityPlayerMP> players = srv.getConfigurationManager().playerEntityList;
+                    for (EntityPlayerMP p : players) {
+                        GTUtility.sendChatToPlayer(p, StatCollector.translateToLocal("info.ezunclear"));
+                    }
                 }
-            } else if (srv != null) {
-                List<EntityPlayerMP> players = srv.getConfigurationManager().playerEntityList;
-                for (EntityPlayerMP p : players) {
-                    GTUtility.sendChatToPlayer(p, StatCollector.translateToLocal("info.ezunclear.interact"));
+                return;
+            }
+
+            // send second message if manual trigger is not required
+            if (!Config.requireCommandToExplode) {
+                MinecraftServer srv = MinecraftServer.getServer();
+                if (srv != null && !srv.isSinglePlayer()) {
+                    List<EntityPlayerMP> players = srv.getConfigurationManager().playerEntityList;
+                    for (EntityPlayerMP p : players) {
+                        GTUtility.sendChatToPlayer(p, StatCollector.translateToLocal("info.ezunclear.interact"));
+                    }
+                } else if (world != null && world.isRemote) {
+                    MessageUtils.sendToSinglePlayer("info.ezunclear.interact");
+                } else if (srv != null) {
+                    List<EntityPlayerMP> players = srv.getConfigurationManager().playerEntityList;
+                    for (EntityPlayerMP p : players) {
+                        GTUtility.sendChatToPlayer(p, StatCollector.translateToLocal("info.ezunclear.interact"));
+                    }
                 }
             }
 
             // allow re-entry and invoke goBoom
-            ChunkCoordinates pos = new ChunkCoordinates(sx, sy, sz);
             com.czqwq.EZNuclear.data.PendingMeltdown.markReentry(pos);
             try {
                 if (reactor != null) {

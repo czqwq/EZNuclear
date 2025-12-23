@@ -12,6 +12,7 @@ import com.brandon3055.brandonscore.common.handlers.ProcessHandler;
 import com.czqwq.EZNuclear.Config;
 import com.czqwq.EZNuclear.EZNuclear;
 import com.czqwq.EZNuclear.data.PendingMeltdown;
+import com.czqwq.EZNuclear.util.MessageUtils;
 
 @SuppressWarnings("UnusedMixin")
 @Mixin(value = ProcessHandler.class, remap = false)
@@ -68,7 +69,7 @@ public class ProcessHandlerMixin {
                 return; // allow addProcess to continue
             }
 
-            // Otherwise cancel and schedule via PendingMeltdown (delay 5s)
+            // Otherwise cancel and schedule via PendingMeltdown (delay configurable)
             // LOGGER.info(
             // "ProcessHandlerMixin: intercepting ReactorExplosion addProcess at {}. scheduling delayed execution.",
             // pos);
@@ -80,8 +81,37 @@ public class ProcessHandlerMixin {
             final int fz = z;
             final Class<?> fcls = cls;
             final net.minecraft.util.ChunkCoordinates fpos = pos;
+
+            // Check if manual trigger is required
+            if (Config.requireCommandToExplode) {
+                // Mark this position for manual trigger
+                PendingMeltdown.markManualTrigger(pos, dim);
+            }
+
             PendingMeltdown.schedule(fpos, () -> {
                 try {
+                    // Check if manual trigger is required
+                    if (Config.requireCommandToExplode && PendingMeltdown.isManualTrigger(fpos, fdim)) {
+                        // If manual trigger is required and this position is marked for manual trigger,
+                        // send the prevent explosion message and return without exploding
+                        net.minecraft.server.MinecraftServer srv = net.minecraft.server.MinecraftServer.getServer();
+                        if (srv != null) {
+                            if (!srv.isSinglePlayer()) {
+                                java.util.List<net.minecraft.entity.player.EntityPlayerMP> players = srv
+                                    .getConfigurationManager().playerEntityList;
+                                for (net.minecraft.entity.player.EntityPlayerMP p : players) {
+                                    gregtech.api.util.GTUtility.sendChatToPlayer(
+                                        p,
+                                        net.minecraft.util.StatCollector
+                                            .translateToLocal("info.ezunclear.preventexplosion"));
+                                }
+                            } else {
+                                MessageUtils.sendToSinglePlayer("info.ezunclear.preventexplosion");
+                            }
+                        }
+                        return;
+                    }
+
                     PendingMeltdown.markReentry(pos);
                     // recreate a ReactorExplosion via reflection and call original addProcess
                     Object newExp = null;
@@ -126,7 +156,7 @@ public class ProcessHandlerMixin {
                 } catch (Throwable t) {
                     // LOGGER.warn("Scheduled addProcess task failed: {}", t.getMessage());
                 }
-            }, 5000L);
+            }, Config.explosionDelaySeconds * 1000L);
 
         } catch (NoSuchFieldException nsfe) {
             // can't find fields, don't intercept
