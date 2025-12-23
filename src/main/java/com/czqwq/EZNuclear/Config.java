@@ -10,6 +10,7 @@ public class Config {
     public static boolean DEExplosion = true;
     public static boolean requireCommandToExplode = false;
     public static int explosionDelaySeconds = 5;
+    public static double IC2ExplosionPower = 100.0;
 
     public static void synchronizeConfiguration(File configFile) {
         Configuration configuration = new Configuration(configFile);
@@ -35,6 +36,13 @@ public class Config {
             1,
             300,
             "Delay in seconds before explosion occurs (default: 5 seconds)");
+        IC2ExplosionPower = configuration.getFloat(
+            "IC2ExplosionPower",
+            Configuration.CATEGORY_GENERAL,
+            (float) IC2ExplosionPower,
+            0.0f,
+            Float.MAX_VALUE,
+            "Fixed power value for IC2 nuclear explosions when requireCommandToExplode is enabled (default: 100.0)");
 
         if (configuration.hasChanged()) {
             configuration.save();

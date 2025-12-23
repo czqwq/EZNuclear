@@ -37,6 +37,13 @@ public class IC2ExplosionMixin {
     private void onDoExplosion(CallbackInfo ci) {
         System.out.println("[EZNuclear] IC2ExplosionMixin.onDoExplosion called");
 
+        // Check if this is a manually triggered explosion that should be allowed through
+        if (PendingMeltdown.isAllowingNextExplosion()) {
+            System.out.println("[EZNuclear] Allowing manually triggered explosion to proceed");
+            PendingMeltdown.resetAllowNextExplosion();
+            return;
+        }
+
         // Try to get explosion coordinates from the parent Explosion class fields
         int ex = 0, ey = 0, ez = 0;
 
@@ -148,43 +155,9 @@ public class IC2ExplosionMixin {
             // Cancel immediate explosion and mark for manual trigger
             ci.cancel();
 
-            // Store explosion information for manual trigger
-            double power = 0.0;
-            try {
-                // Try to get the explosion power from the IC2 ExplosionIC2 class using reflection
-                ic2.core.ExplosionIC2 thisExplosion = (ic2.core.ExplosionIC2) (Object) this;
-
-                // Based on the ExplosionIC2 source code, the power field is named "power"
-                java.lang.reflect.Field powerField = thisExplosion.getClass()
-                    .getDeclaredField("power");
-                powerField.setAccessible(true);
-
-                Object powerValue = powerField.get(thisExplosion);
-                if (powerValue instanceof Float) {
-                    power = ((Float) powerValue).doubleValue();
-                } else if (powerValue instanceof Double) {
-                    power = ((Double) powerValue).doubleValue();
-                } else if (powerValue instanceof Integer) {
-                    power = ((Integer) powerValue).doubleValue();
-                } else {
-                    // If the field is not numeric, try to get it as a float/double anyway
-                    power = powerField.getFloat(thisExplosion);
-                }
-                System.out.println(
-                    "[EZNuclear] Successfully got power from field: " + powerField.getName() + " with value: " + power);
-            } catch (Exception e) {
-                System.out.println("[EZNuclear] Could not get explosion power from IC2 field: " + e.getMessage());
-                e.printStackTrace();
-                // If reflection on IC2 field fails, try to get from parent class explosionSize
-                try {
-                    net.minecraft.world.Explosion parentExplosion = (net.minecraft.world.Explosion) (Object) this;
-                    power = parentExplosion.explosionSize;
-                    System.out.println("[EZNuclear] Using parent explosionSize as fallback: " + power);
-                } catch (Exception ex2) { // 使用不同的变量名
-                    System.out.println("[EZNuclear] All attempts failed, using default power");
-                    power = 45.0f; // Default power
-                }
-            }
+            // Use fixed power value from configuration
+            double power = Config.IC2ExplosionPower;
+            System.out.println("[EZNuclear] Using fixed power from configuration: " + power);
 
             // Get dimension from the world
             int dimension = 0;

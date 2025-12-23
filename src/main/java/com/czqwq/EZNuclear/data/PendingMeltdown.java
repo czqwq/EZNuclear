@@ -21,6 +21,7 @@ import com.czqwq.EZNuclear.util.Constants;
 import cpw.mods.fml.common.eventhandler.EventPriority;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
+import ic2.core.ExplosionIC2;
 
 public class PendingMeltdown {
 
@@ -34,8 +35,21 @@ public class PendingMeltdown {
     private static final Set<PosKey> MANUAL_TRIGGER = Collections.newSetFromMap(new ConcurrentHashMap<>());
     // Stored explosion power for manual triggers
     private static final Map<PosKey, Double> EXPLOSION_POWERS = new ConcurrentHashMap<>();
-    // private static final Logger LOGGER = LogManager.getLogger(PendingMeltdown.class);
-    // private static final Logger LOGGER = LogManager.getLogger(PendingMeltdown.class);
+    // Flag to allow manually triggered explosions to run without being re-cancelled
+    private static volatile boolean allowNextExplosion = false;
+
+    public static boolean isAllowingNextExplosion() {
+        return allowNextExplosion;
+    }
+
+    public static void resetAllowNextExplosion() {
+        allowNextExplosion = false;
+    }
+
+    public static void setAllowNextExplosion() {
+        allowNextExplosion = true;
+    }
+
     // scanning interval (ticks) to check for rogue reactors; low frequency to reduce overhead
     private static final int SCAN_INTERVAL_TICKS = 20; // once per second
     private int tickCounter = 0;
@@ -199,6 +213,7 @@ public class PendingMeltdown {
         POSITIONS.clear();
         MANUAL_TRIGGER.clear();
         REENTRY.clear();
+        EXPLOSION_POWERS.clear(); // Also clear explosion powers to maintain consistency
         // LOGGER.info("PendingMeltdown.executeAllNow: executing {} tasks immediately", copy.size());
         for (Scheduled s : copy) {
             try {
@@ -222,7 +237,8 @@ public class PendingMeltdown {
             if (s.pos.equals(posKey)) {
                 toRemove.add(s);
                 try {
-                    // LOGGER.info("PendingMeltdown.executeByPosition: running task for pos {}", s.pos);
+                    // LOGGER.info("PendingMeltdown.executeByPosition: running task for pos {}", s.pos)
+                    setAllowNextExplosion();
                     s.task.run();
                 } catch (Throwable t) {
                     // LOGGER.error("Error running meltdown task", t);
@@ -235,6 +251,7 @@ public class PendingMeltdown {
             POSITIONS.remove(posKey);
             MANUAL_TRIGGER.remove(posKey);
             REENTRY.remove(posKey);
+            EXPLOSION_POWERS.remove(posKey); // Also remove explosion power to maintain consistency
         }
     }
 
@@ -273,17 +290,27 @@ public class PendingMeltdown {
         }
         System.out.println("[EZNuclear] Using explosion power: " + power);
 
+        // Set flag to allow the explosion to proceed without being re-cancelled
+        setAllowNextExplosion();
+
         // Create and trigger the explosion immediately at the specified position
         MinecraftServer server = MinecraftServer.getServer();
         if (server != null) {
             WorldServer world = server.worldServers[foundPosKey.dim]; // Use the correct dimension
 
-            // Create the explosion
-            Explosion explosion = new Explosion(world, null, pos.posX, pos.posY, pos.posZ, power.floatValue());
-            explosion.doExplosionA();
-            explosion.doExplosionB(true);
+            // Create the IC2 explosion
+            ExplosionIC2 explosion = new ExplosionIC2(
+                world,
+                null,
+                pos.posX,
+                pos.posY,
+                pos.posZ,
+                power.floatValue(),
+                0.01F,
+                ExplosionIC2.Type.Nuclear);
+            explosion.doExplosion();
 
-            System.out.println("[EZNuclear] Explosion triggered at position: " + pos + " with power: " + power);
+            System.out.println("[EZNuclear] IC2 Explosion triggered at position: " + pos + " with power: " + power);
         }
 
         // Clean up stored power
@@ -324,24 +351,28 @@ public class PendingMeltdown {
                     }
                     System.out.println("[EZNuclear] Using explosion power: " + power);
 
+                    // Set flag to allow the explosion to proceed without being re-cancelled
+                    allowNextExplosion = true;
+
                     // Create and trigger the explosion immediately at the specified position
                     MinecraftServer server = MinecraftServer.getServer();
                     if (server != null) {
                         WorldServer world = server.worldServers[posKey.dim]; // Use the correct dimension
 
-                        // Create the explosion
-                        Explosion explosion = new Explosion(
+                        // Create the IC2 explosion
+                        ExplosionIC2 explosion = new ExplosionIC2(
                             world,
                             null,
                             pos.posX,
                             pos.posY,
                             pos.posZ,
-                            power.floatValue());
-                        explosion.doExplosionA();
-                        explosion.doExplosionB(true);
+                            power.floatValue(),
+                            0.01F,
+                            ExplosionIC2.Type.Nuclear);
+                        explosion.doExplosion();
 
-                        System.out
-                            .println("[EZNuclear] Explosion triggered at position: " + pos + " with power: " + power);
+                        System.out.println(
+                            "[EZNuclear] IC2 Explosion triggered at position: " + pos + " with power: " + power);
                     }
 
                     // Clean up stored power
@@ -420,59 +451,17 @@ public class PendingMeltdown {
 
                     if (worldObj instanceof net.minecraft.world.World) {
                         net.minecraft.world.World w = (net.minecraft.world.World) worldObj;
-                        // Explosion constructor in this MC version is (World, Entity, double, double, double, float)
-                        Explosion e = new Explosion(
+                        // Use IC2 ExplosionIC2 instead of vanilla Explosion
+                        ExplosionIC2 e = new ExplosionIC2(
                             w,
                             explosion.getExplosivePlacedBy(),
                             explosion.explosionX,
                             explosion.explosionY,
                             explosion.explosionZ,
-                            explosion.explosionSize);
-                        // try to copy flags if present on target Explosion type
-                        try {
-                            java.lang.reflect.Field flamingField = null;
-                            try {
-                                flamingField = e.getClass()
-                                    .getDeclaredField("isFlaming");
-                            } catch (NoSuchFieldException nsf) {
-                                try {
-                                    flamingField = e.getClass()
-                                        .getDeclaredField("isFlaming");
-                                } catch (NoSuchFieldException ignore) {
-                                    flamingField = null;
-                                }
-                            }
-                            if (flamingField != null) {
-                                flamingField.setAccessible(true);
-                                try {
-                                    flamingField.setBoolean(e, explosion.isFlaming);
-                                } catch (Throwable ignored) {}
-                            }
-                        } catch (Throwable ignored) {}
-
-                        try {
-                            java.lang.reflect.Field smokingField = null;
-                            try {
-                                smokingField = e.getClass()
-                                    .getDeclaredField("isSmoking");
-                            } catch (NoSuchFieldException nsf) {
-                                try {
-                                    smokingField = e.getClass()
-                                        .getDeclaredField("isSmoking");
-                                } catch (NoSuchFieldException ignore) {
-                                    smokingField = null;
-                                }
-                            }
-                            if (smokingField != null) {
-                                smokingField.setAccessible(true);
-                                try {
-                                    smokingField.setBoolean(e, explosion.isSmoking);
-                                } catch (Throwable ignored) {}
-                            }
-                        } catch (Throwable ignored) {}
-
-                        e.doExplosionA();
-                        e.doExplosionB(true);
+                            explosion.explosionSize,
+                            0.01F,
+                            ExplosionIC2.Type.Nuclear);
+                        e.doExplosion();
                     } else {
                         // LOGGER.warn(
                         // "PendingMeltdown: could not locate Explosion.world field; skipping scheduled explosion for
