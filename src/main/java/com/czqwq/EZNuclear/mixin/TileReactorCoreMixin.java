@@ -1,6 +1,5 @@
 package com.czqwq.EZNuclear.mixin;
 
-import java.lang.reflect.Method;
 import java.util.List;
 
 import net.minecraft.entity.player.EntityPlayerMP;
@@ -80,8 +79,11 @@ public abstract class TileReactorCoreMixin {
 
             // Check if manual trigger is required
             if (Config.requireCommandToExplode) {
-                // Mark this position for manual trigger
-                PendingMeltdown.markManualTrigger(pos);
+                // Mark this position for DE manual trigger with configured power
+                PendingMeltdown.markDEManualTriggerWithPower(
+                    pos,
+                    (te.getWorldObj() != null) ? te.getWorldObj().provider.dimensionId : 0,
+                    Config.DEExplosionPower);
             }
 
             MinecraftServer server = MinecraftServer.getServer();
@@ -134,8 +136,8 @@ public abstract class TileReactorCoreMixin {
             // Check if manual trigger is required
             ChunkCoordinates pos = new ChunkCoordinates(sx, sy, sz);
             if (Config.requireCommandToExplode) {
-                // If manual trigger is required, mark this position for manual trigger
-                PendingMeltdown.markManualTrigger(pos, sdim);
+                // If manual trigger is required, mark this position for manual trigger with power
+                PendingMeltdown.markDEManualTriggerWithPower(pos, sdim, Config.DEExplosionPower);
 
                 // Schedule a task that sends the interaction message after delay
                 PendingMeltdown.schedule(pos, () -> {
@@ -195,56 +197,77 @@ public abstract class TileReactorCoreMixin {
             com.czqwq.EZNuclear.data.PendingMeltdown.markReentry(pos);
             try {
                 if (reactor != null) {
-                    Method m = reactor.getClass()
-                        .getMethod("goBoom");
-                    m.invoke(reactor);
+                    // Instead of calling the original goBoom which calculates power dynamically,
+                    // create a ReactorExplosion directly with our configured power
+                    float power = (float) Config.DEExplosionPower;
+
+                    // Create DE's ReactorExplosion with configured power
+                    Class<?> reClass = Class.forName(
+                        "com.brandon3055.draconicevolution.common.tileentities.multiblocktiles.reactor.ReactorExplosion");
+                    java.lang.reflect.Constructor<?> ctor = reClass
+                        .getConstructor(net.minecraft.world.World.class, int.class, int.class, int.class, float.class);
+                    Object newExp = ctor.newInstance(world, sx, sy, sz, power);
+
+                    // Add to process handler
+                    Class<?> iProcessClass = Class.forName("com.brandon3055.brandonscore.common.handlers.IProcess");
+                    java.lang.reflect.Method addMethod = Class
+                        .forName("com.brandon3055.brandonscore.common.handlers.ProcessHandler")
+                        .getMethod("addProcess", iProcessClass);
+                    addMethod.invoke(null, newExp);
+
+                    // Remove the core block after triggering the explosion
+                    world.setBlockToAir(sx, sy, sz);
                 } else {
                     throw new IllegalStateException("TileReactorCore not found at " + pos);
                 }
-            } catch (Throwable t) {
+            } catch (Exception e) {
                 // fallback: direct explosion
                 try {
-                    float power = getPower(reactor);
-                    // create a direct Explosion and run it on the server thread – avoids
-                    // ReactorExplosion/ProcessHandler
+                    float power = (float) Config.DEExplosionPower; // Use configured power instead of dynamic
+                                                                   // calculation
+                    // create a DE ReactorExplosion and run it via ProcessHandler
                     try {
                         if (world != null) {
-                            // Explosion expects doubles for coordinates; using block center
-                            net.minecraft.world.Explosion e = new net.minecraft.world.Explosion(
-                                world,
-                                null,
-                                (double) sx + 0.5D,
-                                (double) sy + 0.5D,
-                                (double) sz + 0.5D,
-                                power);
-                            e.doExplosionA();
-                            e.doExplosionB(true);
+                            // Use DE's ReactorExplosion class with configured power
+                            Class<?> reClass = Class.forName(
+                                "com.brandon3055.draconicevolution.common.tileentities.multiblocktiles.reactor.ReactorExplosion");
+                            java.lang.reflect.Constructor<?> ctor = reClass.getConstructor(
+                                net.minecraft.world.World.class,
+                                int.class,
+                                int.class,
+                                int.class,
+                                float.class);
+                            Object newExp = ctor.newInstance(world, sx, sy, sz, power);
+
+                            // Add to process handler
+                            Class<?> iProcessClass = Class
+                                .forName("com.brandon3055.brandonscore.common.handlers.IProcess");
+                            java.lang.reflect.Method addMethod = Class
+                                .forName("com.brandon3055.brandonscore.common.handlers.ProcessHandler")
+                                .getMethod("addProcess", iProcessClass);
+                            addMethod.invoke(null, newExp);
+
+                            // Remove the core block after triggering the explosion
                             world.setBlockToAir(sx, sy, sz);
                         }
-                    } catch (Throwable ex) {
-                        // Failed fallback direct explosion
+                    } catch (Exception ex) {
+                        // If DE classes are not available, fallback to vanilla explosion
+                        net.minecraft.world.Explosion vanillaExplosion = new net.minecraft.world.Explosion(
+                            world,
+                            null,
+                            (double) sx + 0.5D,
+                            (double) sy + 0.5D,
+                            (double) sz + 0.5D,
+                            power);
+                        vanillaExplosion.doExplosionA();
+                        vanillaExplosion.doExplosionB(true);
+                        world.setBlockToAir(sx, sy, sz);
                     }
                 } catch (Throwable ex) {
                     // Failed fallback explosion
+                    System.out.println("[EZNuclear] Failed to create DE explosion fallback: " + ex.getMessage());
                 }
             }
         };
-    }
-
-    private static float getPower(TileReactorCore reactor) {
-        int totalFuel = 10000;
-        try {
-            java.lang.reflect.Field f1 = TileReactorCore.class.getField("reactorFuel");
-            java.lang.reflect.Field f2 = TileReactorCore.class.getField("convertedFuel");
-            int r = 0;
-            int c = 0;
-            if (reactor != null) {
-                r = f1.getInt(reactor);
-                c = f2.getInt(reactor);
-            }
-            totalFuel = r + c;
-        } catch (Throwable ignored) {}
-
-        return 2F + ((float) totalFuel / (10368 + 1F) * 18F);
     }
 }

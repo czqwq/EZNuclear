@@ -11,6 +11,7 @@ public class Config {
     public static boolean requireCommandToExplode = false;
     public static int explosionDelaySeconds = 5;
     public static double IC2ExplosionPower = 100.0;
+    public static double DEExplosionPower = 100.0;
 
     public static void synchronizeConfiguration(File configFile) {
         Configuration configuration = new Configuration(configFile);
@@ -43,6 +44,13 @@ public class Config {
             0.0f,
             Float.MAX_VALUE,
             "Fixed power value for IC2 nuclear explosions when requireCommandToExplode is enabled (default: 100.0)");
+        DEExplosionPower = configuration.getFloat(
+            "DEExplosionPower",
+            Configuration.CATEGORY_GENERAL,
+            (float) DEExplosionPower,
+            0.0f,
+            Float.MAX_VALUE,
+            "Fixed power value for Draconic Evolution reactor explosions when requireCommandToExplode is enabled (default: 100.0)");
 
         if (configuration.hasChanged()) {
             configuration.save();

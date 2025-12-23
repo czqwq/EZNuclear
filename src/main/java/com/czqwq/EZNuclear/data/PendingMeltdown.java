@@ -33,6 +33,8 @@ public class PendingMeltdown {
     private static final Set<PosKey> REENTRY = Collections.newSetFromMap(new ConcurrentHashMap<>());
     // Manual trigger set: positions that require manual triggering via chat command
     private static final Set<PosKey> MANUAL_TRIGGER = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    // DE Manual trigger set: positions for DE explosions that require manual triggering
+    private static final Set<PosKey> DE_MANUAL_TRIGGER = Collections.newSetFromMap(new ConcurrentHashMap<>());
     // Stored explosion power for manual triggers
     private static final Map<PosKey, Double> EXPLOSION_POWERS = new ConcurrentHashMap<>();
     // Flag to allow manually triggered explosions to run without being re-cancelled
@@ -181,6 +183,19 @@ public class PendingMeltdown {
         EXPLOSION_POWERS.put(key, power);
     }
 
+    public static void markDEManualTriggerWithPower(ChunkCoordinates pos, int dimension, double power) {
+        System.out.println(
+            "[EZNuclear] Marking position for DE manual trigger with power: " + pos
+                + " dimension: "
+                + dimension
+                + " power: "
+                + power);
+        if (pos == null) return;
+        PosKey key = new PosKey(pos, dimension);
+        DE_MANUAL_TRIGGER.add(key);
+        EXPLOSION_POWERS.put(key, power);
+    }
+
     public static boolean consumeManualTrigger(ChunkCoordinates pos, int dimension) {
         if (pos == null) return false;
         return MANUAL_TRIGGER.remove(new PosKey(pos, dimension));
@@ -212,6 +227,7 @@ public class PendingMeltdown {
         SCHEDULED.clear();
         POSITIONS.clear();
         MANUAL_TRIGGER.clear();
+        DE_MANUAL_TRIGGER.clear(); // Also clear DE manual triggers
         REENTRY.clear();
         EXPLOSION_POWERS.clear(); // Also clear explosion powers to maintain consistency
         // LOGGER.info("PendingMeltdown.executeAllNow: executing {} tasks immediately", copy.size());
@@ -330,35 +346,87 @@ public class PendingMeltdown {
         // Handle manual trigger command "坏了坏了"
         if (event.message != null && event.message.equals(Constants.COMMAND_OH_NO)) {
             System.out.println("[EZNuclear] Manual trigger command detected");
-            // Find all positions that are waiting for manual trigger and trigger them immediately
-            List<PosKey> positionsToTrigger = new ArrayList<>();
-            synchronized (MANUAL_TRIGGER) {
-                positionsToTrigger.addAll(MANUAL_TRIGGER);
-            }
 
-            System.out.println("[EZNuclear] Found " + positionsToTrigger.size() + " positions to trigger");
-            for (PosKey posKey : positionsToTrigger) {
-                ChunkCoordinates pos = new ChunkCoordinates(posKey.x, posKey.y, posKey.z);
-                System.out.println("[EZNuclear] Triggering explosion at position: " + pos);
-                // Instead of using triggerExplosionImmediately, directly trigger for the specific dimension
-                if (MANUAL_TRIGGER.contains(posKey)) {
-                    MANUAL_TRIGGER.remove(posKey);
+            // Process IC2 explosions
+            processManualTriggers(MANUAL_TRIGGER, false); // false = not DE
 
-                    // Get stored explosion power if available
-                    Double power = EXPLOSION_POWERS.get(posKey);
-                    if (power == null) {
-                        power = 4.0; // Default power if not stored
-                    }
-                    System.out.println("[EZNuclear] Using explosion power: " + power);
+            // Process DE explosions
+            processManualTriggers(DE_MANUAL_TRIGGER, true); // true = DE
+        }
+    }
 
-                    // Set flag to allow the explosion to proceed without being re-cancelled
-                    allowNextExplosion = true;
+    private static void processManualTriggers(Set<PosKey> triggerSet, boolean isDE) {
+        List<PosKey> positionsToTrigger = new ArrayList<>();
+        synchronized (triggerSet) {
+            positionsToTrigger.addAll(triggerSet);
+        }
 
-                    // Create and trigger the explosion immediately at the specified position
-                    MinecraftServer server = MinecraftServer.getServer();
-                    if (server != null) {
-                        WorldServer world = server.worldServers[posKey.dim]; // Use the correct dimension
+        System.out.println(
+            "[EZNuclear] Found " + positionsToTrigger.size() + " " + (isDE ? "DE" : "IC2") + " positions to trigger");
+        for (PosKey posKey : positionsToTrigger) {
+            ChunkCoordinates pos = new ChunkCoordinates(posKey.x, posKey.y, posKey.z);
+            System.out.println("[EZNuclear] Triggering " + (isDE ? "DE" : "IC2") + " explosion at position: " + pos);
 
+            if (triggerSet.contains(posKey)) {
+                triggerSet.remove(posKey);
+
+                // Get stored explosion power if available
+                Double power = EXPLOSION_POWERS.get(posKey);
+                if (power == null) {
+                    power = 4.0; // Default power if not stored
+                }
+                System.out.println("[EZNuclear] Using " + (isDE ? "DE" : "IC2") + " explosion power: " + power);
+
+                // Set flag to allow the explosion to proceed without being re-cancelled
+                setAllowNextExplosion();
+
+                // Create and trigger the explosion immediately at the specified position
+                MinecraftServer server = MinecraftServer.getServer();
+                if (server != null) {
+                    WorldServer world = server.worldServers[posKey.dim]; // Use the correct dimension
+
+                    if (isDE) {
+                        // Create the DE explosion using ReactorExplosion
+                        try {
+                            Class<?> reClass = Class.forName(
+                                "com.brandon3055.draconicevolution.common.tileentities.multiblocktiles.reactor.ReactorExplosion");
+                            java.lang.reflect.Constructor<?> ctor = reClass.getConstructor(
+                                net.minecraft.world.World.class,
+                                int.class,
+                                int.class,
+                                int.class,
+                                float.class);
+                            Object newExp = ctor.newInstance(world, pos.posX, pos.posY, pos.posZ, power.floatValue());
+
+                            // Add to process handler
+                            Class<?> iProcessClass = Class
+                                .forName("com.brandon3055.brandonscore.common.handlers.IProcess");
+                            java.lang.reflect.Method addMethod = Class
+                                .forName("com.brandon3055.brandonscore.common.handlers.ProcessHandler")
+                                .getMethod("addProcess", iProcessClass);
+                            addMethod.invoke(null, newExp);
+
+                            System.out.println(
+                                "[EZNuclear] DE ReactorExplosion triggered at position: " + pos
+                                    + " with power: "
+                                    + power);
+                        } catch (Exception e) {
+                            // Fallback to vanilla explosion if DE classes are not available
+                            net.minecraft.world.Explosion explosion = new net.minecraft.world.Explosion(
+                                world,
+                                null,
+                                pos.posX,
+                                pos.posY,
+                                pos.posZ,
+                                power.floatValue());
+                            explosion.doExplosionA();
+                            explosion.doExplosionB(true);
+                            System.out.println(
+                                "[EZNuclear] DE fallback vanilla explosion triggered at position: " + pos
+                                    + " with power: "
+                                    + power);
+                        }
+                    } else {
                         // Create the IC2 explosion
                         ExplosionIC2 explosion = new ExplosionIC2(
                             world,
@@ -370,16 +438,68 @@ public class PendingMeltdown {
                             0.01F,
                             ExplosionIC2.Type.Nuclear);
                         explosion.doExplosion();
-
                         System.out.println(
                             "[EZNuclear] IC2 Explosion triggered at position: " + pos + " with power: " + power);
                     }
-
-                    // Clean up stored power
-                    EXPLOSION_POWERS.remove(posKey);
                 }
+
+                // Clean up stored power
+                EXPLOSION_POWERS.remove(posKey);
             }
         }
+    }
+
+    /**
+     * Trigger DE explosion immediately for a manually marked position.
+     * This creates a new explosion task and executes it immediately.
+     */
+    public static void triggerDEExplosionImmediately(ChunkCoordinates pos) {
+        System.out.println("[EZNuclear] triggerDEExplosionImmediately called for position: " + pos);
+        // We need to find the correct PosKey with dimension from the MANUAL_TRIGGER set
+        PosKey foundPosKey = null;
+        for (PosKey key : MANUAL_TRIGGER) {
+            if (key.x == pos.posX && key.y == pos.posY && key.z == pos.posZ) {
+                foundPosKey = key;
+                break;
+            }
+        }
+
+        if (foundPosKey == null) {
+            System.out.println("[EZNuclear] Position not marked for manual trigger: " + pos);
+            return;
+        }
+
+        // Remove from manual trigger set
+        MANUAL_TRIGGER.remove(foundPosKey);
+
+        // Get stored explosion power if available
+        Double power = EXPLOSION_POWERS.get(foundPosKey);
+        if (power == null) {
+            power = 4.0; // Default power if not stored
+        }
+        System.out.println("[EZNuclear] Using DE explosion power: " + power);
+
+        // Create and trigger the explosion immediately at the specified position
+        MinecraftServer server = MinecraftServer.getServer();
+        if (server != null) {
+            WorldServer world = server.worldServers[foundPosKey.dim]; // Use the correct dimension
+
+            // Create the vanilla explosion for DE
+            net.minecraft.world.Explosion explosion = new net.minecraft.world.Explosion(
+                world,
+                null,
+                pos.posX,
+                pos.posY,
+                pos.posZ,
+                power.floatValue());
+            explosion.doExplosionA();
+            explosion.doExplosionB(true);
+
+            System.out.println("[EZNuclear] DE Explosion triggered at position: " + pos + " with power: " + power);
+        }
+
+        // Clean up stored power
+        EXPLOSION_POWERS.remove(foundPosKey);
     }
 
     @SubscribeEvent
