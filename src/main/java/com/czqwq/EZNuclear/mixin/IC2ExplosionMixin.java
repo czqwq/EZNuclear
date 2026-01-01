@@ -38,6 +38,13 @@ public class IC2ExplosionMixin {
         System.out.println("[EZNuclear] IC2ExplosionMixin.onDoExplosion called");
         System.out.println("[EZNuclear] IC2 Explosion starting at HEAD injection");
 
+        // Check if global flag for allowing next explosion is set
+        if (PendingMeltdown.isAllowingNextExplosion()) {
+            System.out.println("[EZNuclear] Global allowNextExplosion flag is set, proceeding with explosion");
+            PendingMeltdown.resetAllowNextExplosion(); // Reset the flag
+            return; // Allow the explosion to proceed without further processing
+        }
+
         // Try to get explosion coordinates from the parent Explosion class fields
         int ex = 0, ey = 0, ez = 0;
 
