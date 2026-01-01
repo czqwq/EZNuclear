@@ -29,7 +29,7 @@ public abstract class TileReactorCoreMixin {
 
     @Inject(method = "goBoom", remap = false, at = @At("HEAD"), cancellable = true)
     private void onGoBoom(CallbackInfo ci) {
-        System.out.println("[EZNuclear] TileReactorCore.goBoom called");
+        // System.out.println("[EZNuclear] TileReactorCore.goBoom called");
         // Check if DE explosions are disabled in config
         if (!Config.DEExplosion) {
             // Even if explosion is disabled, still send the message to players
@@ -72,27 +72,27 @@ public abstract class TileReactorCoreMixin {
 
         // Get dimension for position tracking
         int dimension = (te.getWorldObj() != null) ? te.getWorldObj().provider.dimensionId : 0;
-        System.out.println("[EZNuclear] DE goBoom at position: " + pos + " in dimension: " + dimension);
+        // System.out.println("[EZNuclear] DE goBoom at position: " + pos + " in dimension: " + dimension);
 
         // Check if this position has recently had a manual trigger to prevent duplicate processing
-        System.out.println(
-            "[EZNuclear] DE goBoom: Checking if position " + pos + " should be ignored, dimension: " + dimension);
+        // System.out.println(
+        // "[EZNuclear] DE goBoom: Checking if position " + pos + " should be ignored, dimension: " + dimension);
         if (com.czqwq.EZNuclear.data.PendingMeltdown.shouldIgnoreExplosionAt(pos, dimension)) {
-            System.out.println(
-                "[EZNuclear] Position " + pos + " had recent manual trigger, skipping DE goBoom to prevent duplicate");
+            // System.out.println(
+            // "[EZNuclear] Position " + pos + " had recent manual trigger, skipping DE goBoom to prevent duplicate");
             return; // Skip processing for this position
         } else {
-            System.out.println("[EZNuclear] Position " + pos + " passed ignore check, continuing with DE goBoom");
+            // System.out.println("[EZNuclear] Position " + pos + " passed ignore check, continuing with DE goBoom");
         }
 
         if (com.czqwq.EZNuclear.data.PendingMeltdown.consumeReentry(pos)) {
-            System.out.println("[EZNuclear] Reentry consumed for position " + pos + ", allowing original goBoom");
+            // System.out.println("[EZNuclear] Reentry consumed for position " + pos + ", allowing original goBoom");
             return; // allow original goBoom
         }
 
         if (PendingMeltdown.schedule(pos, createScheduledTask(te), Config.explosionDelaySeconds * 1000L)) {
             ci.cancel();
-            System.out.println("[EZNuclear] Scheduled task for DE explosion at position: " + pos);
+            // System.out.println("[EZNuclear] Scheduled task for DE explosion at position: " + pos);
             PendingMeltdown.schedule(pos, () -> {}, 0L); // touch pos to log scheduling if needed
 
             // Check if manual trigger is required
@@ -102,9 +102,9 @@ public abstract class TileReactorCoreMixin {
                     pos,
                     (te.getWorldObj() != null) ? te.getWorldObj().provider.dimensionId : 0,
                     Config.DEExplosionPower);
-                System.out.println("[EZNuclear] Marked DE explosion for manual trigger at position: " + pos);
+                // System.out.println("[EZNuclear] Marked DE explosion for manual trigger at position: " + pos);
             } else {
-                System.out.println("[EZNuclear] DE explosion in auto mode at position: " + pos);
+                // System.out.println("[EZNuclear] DE explosion in auto mode at position: " + pos);
             }
 
             MinecraftServer server = MinecraftServer.getServer();
@@ -162,8 +162,8 @@ public abstract class TileReactorCoreMixin {
 
                 // In manual mode, we don't schedule the interaction message automatically
                 // The message is sent when the player manually triggers the explosion
-                System.out
-                    .println("[EZNuclear] Manual trigger mode: marked position " + pos + " for manual activation");
+                // System.out
+                // .println("[EZNuclear] Manual trigger mode: marked position " + pos + " for manual activation");
                 return;
             }
 
@@ -257,7 +257,7 @@ public abstract class TileReactorCoreMixin {
                     }
                 } catch (Throwable ex) {
                     // Failed fallback explosion
-                    System.out.println("[EZNuclear] Failed to create DE explosion fallback: " + ex.getMessage());
+                    // System.out.println("[EZNuclear] Failed to create DE explosion fallback: " + ex.getMessage());
                 }
             }
         };
