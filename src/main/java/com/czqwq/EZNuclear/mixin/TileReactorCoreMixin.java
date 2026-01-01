@@ -29,6 +29,7 @@ public abstract class TileReactorCoreMixin {
 
     @Inject(method = "goBoom", remap = false, at = @At("HEAD"), cancellable = true)
     private void onGoBoom(CallbackInfo ci) {
+        System.out.println("[EZNuclear] TileReactorCore.goBoom called");
         // Check if DE explosions are disabled in config
         if (!Config.DEExplosion) {
             // Even if explosion is disabled, still send the message to players
@@ -69,12 +70,29 @@ public abstract class TileReactorCoreMixin {
         TileEntity te = (TileEntity) (Object) this;
         ChunkCoordinates pos = new ChunkCoordinates(te.xCoord, te.yCoord, te.zCoord);
 
+        // Get dimension for position tracking
+        int dimension = (te.getWorldObj() != null) ? te.getWorldObj().provider.dimensionId : 0;
+        System.out.println("[EZNuclear] DE goBoom at position: " + pos + " in dimension: " + dimension);
+
+        // Check if this position has recently had a manual trigger to prevent duplicate processing
+        System.out.println(
+            "[EZNuclear] DE goBoom: Checking if position " + pos + " should be ignored, dimension: " + dimension);
+        if (com.czqwq.EZNuclear.data.PendingMeltdown.shouldIgnoreExplosionAt(pos, dimension)) {
+            System.out.println(
+                "[EZNuclear] Position " + pos + " had recent manual trigger, skipping DE goBoom to prevent duplicate");
+            return; // Skip processing for this position
+        } else {
+            System.out.println("[EZNuclear] Position " + pos + " passed ignore check, continuing with DE goBoom");
+        }
+
         if (com.czqwq.EZNuclear.data.PendingMeltdown.consumeReentry(pos)) {
+            System.out.println("[EZNuclear] Reentry consumed for position " + pos + ", allowing original goBoom");
             return; // allow original goBoom
         }
 
         if (PendingMeltdown.schedule(pos, createScheduledTask(te), Config.explosionDelaySeconds * 1000L)) {
             ci.cancel();
+            System.out.println("[EZNuclear] Scheduled task for DE explosion at position: " + pos);
             PendingMeltdown.schedule(pos, () -> {}, 0L); // touch pos to log scheduling if needed
 
             // Check if manual trigger is required
@@ -84,6 +102,9 @@ public abstract class TileReactorCoreMixin {
                     pos,
                     (te.getWorldObj() != null) ? te.getWorldObj().provider.dimensionId : 0,
                     Config.DEExplosionPower);
+                System.out.println("[EZNuclear] Marked DE explosion for manual trigger at position: " + pos);
+            } else {
+                System.out.println("[EZNuclear] DE explosion in auto mode at position: " + pos);
             }
 
             MinecraftServer server = MinecraftServer.getServer();
@@ -139,43 +160,14 @@ public abstract class TileReactorCoreMixin {
                 // If manual trigger is required, mark this position for manual trigger with power
                 PendingMeltdown.markDEManualTriggerWithPower(pos, sdim, Config.DEExplosionPower);
 
-                // Schedule a task that sends the interaction message after delay
-                PendingMeltdown.schedule(pos, () -> {
-                    MinecraftServer srv = MinecraftServer.getServer();
-                    if (srv != null && !srv.isSinglePlayer()) {
-                        List<EntityPlayerMP> players = srv.getConfigurationManager().playerEntityList;
-                        for (EntityPlayerMP p : players) {
-                            GTUtility.sendChatToPlayer(p, StatCollector.translateToLocal("info.ezunclear.interact"));
-                        }
-                    } else if (world != null && world.isRemote) {
-                        MessageUtils.sendToSinglePlayer("info.ezunclear.interact");
-                    } else if (srv != null) {
-                        List<EntityPlayerMP> players = srv.getConfigurationManager().playerEntityList;
-                        for (EntityPlayerMP p : players) {
-                            GTUtility.sendChatToPlayer(p, StatCollector.translateToLocal("info.ezunclear.interact"));
-                        }
-                    }
-                }, Config.explosionDelaySeconds * 1000L);
-
-                // Send the initial message and return without exploding immediately
-                MinecraftServer srv = MinecraftServer.getServer();
-                if (srv != null && !srv.isSinglePlayer()) {
-                    List<EntityPlayerMP> players = srv.getConfigurationManager().playerEntityList;
-                    for (EntityPlayerMP p : players) {
-                        GTUtility.sendChatToPlayer(p, StatCollector.translateToLocal("info.ezunclear"));
-                    }
-                } else if (world != null && world.isRemote) {
-                    MessageUtils.sendToSinglePlayer("info.ezunclear");
-                } else if (srv != null) {
-                    List<EntityPlayerMP> players = srv.getConfigurationManager().playerEntityList;
-                    for (EntityPlayerMP p : players) {
-                        GTUtility.sendChatToPlayer(p, StatCollector.translateToLocal("info.ezunclear"));
-                    }
-                }
+                // In manual mode, we don't schedule the interaction message automatically
+                // The message is sent when the player manually triggers the explosion
+                System.out
+                    .println("[EZNuclear] Manual trigger mode: marked position " + pos + " for manual activation");
                 return;
             }
 
-            // send second message if manual trigger is not required
+            // send second message if manual trigger is not required (auto mode)
             if (!Config.requireCommandToExplode) {
                 MinecraftServer srv = MinecraftServer.getServer();
                 if (srv != null && !srv.isSinglePlayer()) {

@@ -36,13 +36,7 @@ public class IC2ExplosionMixin {
     @Inject(method = "doExplosion", at = @At("HEAD"), cancellable = true)
     private void onDoExplosion(CallbackInfo ci) {
         System.out.println("[EZNuclear] IC2ExplosionMixin.onDoExplosion called");
-
-        // Check if this is a manually triggered explosion that should be allowed through
-        if (PendingMeltdown.isAllowingNextExplosion()) {
-            System.out.println("[EZNuclear] Allowing manually triggered explosion to proceed");
-            PendingMeltdown.resetAllowNextExplosion();
-            return;
-        }
+        System.out.println("[EZNuclear] IC2 Explosion starting at HEAD injection");
 
         // Try to get explosion coordinates from the parent Explosion class fields
         int ex = 0, ey = 0, ez = 0;
@@ -136,6 +130,32 @@ public class IC2ExplosionMixin {
             return;
         }
 
+        // Check if this position was recently manually triggered to prevent re-scheduling
+        int dimension = 0;
+        try {
+            net.minecraft.world.Explosion explosion = (net.minecraft.world.Explosion) (Object) this;
+            // Use reflection to access the private worldObj field
+            java.lang.reflect.Field worldObjField = net.minecraft.world.Explosion.class.getDeclaredField("worldObj");
+            worldObjField.setAccessible(true);
+            net.minecraft.world.World world = (net.minecraft.world.World) worldObjField.get(explosion);
+            if (world != null) {
+                dimension = world.provider.dimensionId;
+            }
+        } catch (Exception e) {
+            System.out.println("[EZNuclear] Could not get dimension, using default 0");
+        }
+
+        // Check if this position has recently had a manual trigger to prevent duplicate processing
+        System.out.println("[EZNuclear] Checking if position " + pos + " should be ignored, dimension: " + dimension);
+        if (PendingMeltdown.shouldIgnoreExplosionAt(pos, dimension)) {
+            System.out.println(
+                "[EZNuclear] Position " + pos
+                    + " had recent manual trigger, skipping IC2 explosion to prevent duplicate");
+            return; // Skip processing for this position
+        } else {
+            System.out.println("[EZNuclear] Position " + pos + " passed ignore check, continuing with processing");
+        }
+
         // Only run on server side -- use server global instead of shadowing world
         MinecraftServer server = FMLCommonHandler.instance()
             .getMinecraftServerInstance();
@@ -160,7 +180,7 @@ public class IC2ExplosionMixin {
             System.out.println("[EZNuclear] Using fixed power from configuration: " + power);
 
             // Get dimension from the world
-            int dimension = 0;
+            int dimensionId = 0;
             try {
                 net.minecraft.world.Explosion explosion = (net.minecraft.world.Explosion) (Object) this;
                 // Use reflection to access the private worldObj field
@@ -169,7 +189,7 @@ public class IC2ExplosionMixin {
                 worldObjField.setAccessible(true);
                 net.minecraft.world.World world = (net.minecraft.world.World) worldObjField.get(explosion);
                 if (world != null) {
-                    dimension = world.provider.dimensionId;
+                    dimensionId = world.provider.dimensionId;
                 }
             } catch (Exception e) {
                 System.out.println("[EZNuclear] Could not get dimension, using default 0");
@@ -177,7 +197,7 @@ public class IC2ExplosionMixin {
             }
 
             // Mark this position for manual trigger with stored power and dimension
-            PendingMeltdown.markManualTriggerWithPower(pos, dimension, power);
+            PendingMeltdown.markManualTriggerWithPower(pos, dimensionId, power);
         } else {
             System.out.println("[EZNuclear] Auto-trigger mode, scheduling explosion after delay");
             // Cancel immediate explosion and schedule the real one after delay

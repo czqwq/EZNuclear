@@ -36,6 +36,14 @@ public class PendingMeltdown {
     private static final Map<PosKey, Double> EXPLOSION_POWERS = new ConcurrentHashMap<>();
     // Flag to allow manually triggered explosions to run without being re-cancelled
     private static volatile boolean allowNextExplosion = false;
+    // Set to track positions that have been completely processed to prevent re-processing
+    private static final Set<PosKey> PROCESSED_POSITIONS = Collections.newSetFromMap(new ConcurrentHashMap<>());
+
+    // Map to track when a position was processed, to prevent re-processing for a certain time period
+    private static final Map<PosKey, Long> PROCESSED_POSITIONS_TIME = new ConcurrentHashMap<>();
+
+    // Time window (in milliseconds) to prevent re-processing of the same position after manual trigger
+    private static final long PROCESSING_WINDOW_MS = 10000; // 10 seconds
 
     public static boolean isAllowingNextExplosion() {
         return allowNextExplosion;
@@ -169,7 +177,7 @@ public class PendingMeltdown {
 
     public static void markManualTriggerWithPower(ChunkCoordinates pos, int dimension, double power) {
         System.out.println(
-            "[EZNuclear] Marking position for manual trigger with power: " + pos
+            "[EZNuclear] markManualTriggerWithPower called for position: " + pos
                 + " dimension: "
                 + dimension
                 + " power: "
@@ -178,11 +186,12 @@ public class PendingMeltdown {
         PosKey key = new PosKey(pos, dimension);
         MANUAL_TRIGGER.add(key);
         EXPLOSION_POWERS.put(key, power);
+        System.out.println("[EZNuclear] Added position " + pos + " to IC2 manual trigger set with power: " + power);
     }
 
     public static void markDEManualTriggerWithPower(ChunkCoordinates pos, int dimension, double power) {
         System.out.println(
-            "[EZNuclear] Marking position for DE manual trigger with power: " + pos
+            "[EZNuclear] markDEManualTriggerWithPower called for position: " + pos
                 + " dimension: "
                 + dimension
                 + " power: "
@@ -191,6 +200,7 @@ public class PendingMeltdown {
         PosKey key = new PosKey(pos, dimension);
         DE_MANUAL_TRIGGER.add(key);
         EXPLOSION_POWERS.put(key, power);
+        System.out.println("[EZNuclear] Added position " + pos + " to DE manual trigger set with power: " + power);
     }
 
     public static boolean consumeManualTrigger(ChunkCoordinates pos, int dimension) {
@@ -201,6 +211,50 @@ public class PendingMeltdown {
     public static boolean isManualTrigger(ChunkCoordinates pos, int dimension) {
         if (pos == null) return false;
         return MANUAL_TRIGGER.contains(new PosKey(pos, dimension));
+    }
+
+    /**
+     * Check if this position has recently had an explosion manually triggered
+     * to prevent duplicate processing from chain reactions
+     */
+    public static boolean shouldIgnoreExplosionAt(ChunkCoordinates pos, int dimension) {
+        if (pos == null) return false;
+        PosKey key = new PosKey(pos, dimension);
+
+        boolean shouldIgnore = PROCESSED_POSITIONS.contains(key);
+        System.out.println(
+            "[EZNuclear] shouldIgnoreExplosionAt: pos=" + pos
+                + ", dimension="
+                + dimension
+                + ", shouldIgnore="
+                + shouldIgnore);
+
+        // Check if the position is in the recently processed set
+        if (!shouldIgnore) {
+            System.out.println("[EZNuclear] Position " + pos + " not in PROCESSED_POSITIONS, allowing explosion");
+            return false;
+        }
+
+        // Check if it's within the time window
+        Long processedTime = PROCESSED_POSITIONS_TIME.get(key);
+        if (processedTime != null) {
+            long timeDiff = System.currentTimeMillis() - processedTime;
+            boolean inTimeWindow = timeDiff < PROCESSING_WINDOW_MS;
+            System.out.println(
+                "[EZNuclear] Position " + pos
+                    + " time check: diff="
+                    + timeDiff
+                    + "ms, window="
+                    + PROCESSING_WINDOW_MS
+                    + "ms, inWindow="
+                    + inTimeWindow);
+            return inTimeWindow;
+        }
+
+        // If we only have it in PROCESSED_POSITIONS but not in PROCESSED_POSITIONS_TIME,
+        // consider it still in ignore window
+        System.out.println("[EZNuclear] Position " + pos + " in PROCESSED_POSITIONS but no time record, ignoring");
+        return true;
     }
 
     // Backwards-compatible variants (dimension 0)
@@ -227,6 +281,8 @@ public class PendingMeltdown {
         DE_MANUAL_TRIGGER.clear(); // Also clear DE manual triggers
         REENTRY.clear();
         EXPLOSION_POWERS.clear(); // Also clear explosion powers to maintain consistency
+        PROCESSED_POSITIONS.clear(); // Also clear processed positions to maintain consistency
+        PROCESSED_POSITIONS_TIME.clear(); // Also clear processed positions time to maintain consistency
         // LOGGER.info("PendingMeltdown.executeAllNow: executing {} tasks immediately", copy.size());
         for (Scheduled s : copy) {
             try {
@@ -265,6 +321,8 @@ public class PendingMeltdown {
             MANUAL_TRIGGER.remove(posKey);
             REENTRY.remove(posKey);
             EXPLOSION_POWERS.remove(posKey); // Also remove explosion power to maintain consistency
+            PROCESSED_POSITIONS.remove(posKey); // Also remove from processed set to allow future processing if needed
+            PROCESSED_POSITIONS_TIME.remove(posKey); // Also remove from processed time set
         }
     }
 
@@ -328,11 +386,18 @@ public class PendingMeltdown {
 
         // Clean up stored power
         EXPLOSION_POWERS.remove(foundPosKey);
+
+        // Mark this position as processed to prevent re-interception
+        PROCESSED_POSITIONS.add(foundPosKey);
+        PROCESSED_POSITIONS_TIME.put(foundPosKey, System.currentTimeMillis());
     }
 
     @SubscribeEvent(priority = EventPriority.NORMAL)
     public void onChat(ServerChatEvent event) {
-        System.out.println("[EZNuclear] onChat called with message: " + event.message);
+        System.out.println(
+            "[EZNuclear] onChat called with message: " + event.message
+                + " from player: "
+                + event.player.getCommandSenderName());
         String triggerMessage = Constants.COMMAND_EZUNCLEAR; // 你可以改成任何触发消息
 
         if (event.message != null && event.message.equals(triggerMessage)) {
@@ -342,7 +407,10 @@ public class PendingMeltdown {
 
         // Handle manual trigger command "坏了坏了"
         if (event.message != null && event.message.equals(Constants.COMMAND_OH_NO)) {
-            System.out.println("[EZNuclear] Manual trigger command detected");
+            System.out.println(
+                "[EZNuclear] Manual trigger command detected from player: " + event.player.getCommandSenderName());
+            System.out.println("[EZNuclear] IC2 Manual Trigger Set size: " + MANUAL_TRIGGER.size());
+            System.out.println("[EZNuclear] DE Manual Trigger Set size: " + DE_MANUAL_TRIGGER.size());
 
             // Process IC2 explosions
             processManualTriggers(MANUAL_TRIGGER, false); // false = not DE
@@ -359,13 +427,18 @@ public class PendingMeltdown {
         }
 
         System.out.println(
-            "[EZNuclear] Found " + positionsToTrigger.size() + " " + (isDE ? "DE" : "IC2") + " positions to trigger");
+            "[EZNuclear] processManualTriggers called for " + (isDE ? "DE" : "IC2")
+                + ", found "
+                + positionsToTrigger.size()
+                + " positions to trigger");
+        System.out.println("[EZNuclear] triggerSet size before processing: " + triggerSet.size());
         for (PosKey posKey : positionsToTrigger) {
             ChunkCoordinates pos = new ChunkCoordinates(posKey.x, posKey.y, posKey.z);
             System.out.println("[EZNuclear] Triggering " + (isDE ? "DE" : "IC2") + " explosion at position: " + pos);
 
             if (triggerSet.contains(posKey)) {
                 triggerSet.remove(posKey);
+                System.out.println("[EZNuclear] Removed position " + pos + " from trigger set");
 
                 // Get stored explosion power if available
                 Double power = EXPLOSION_POWERS.get(posKey);
@@ -376,6 +449,7 @@ public class PendingMeltdown {
 
                 // Set flag to allow the explosion to proceed without being re-cancelled
                 setAllowNextExplosion();
+                System.out.println("[EZNuclear] Set allowNextExplosion flag to true");
 
                 // Create and trigger the explosion immediately at the specified position
                 MinecraftServer server = MinecraftServer.getServer();
@@ -442,8 +516,15 @@ public class PendingMeltdown {
 
                 // Clean up stored power
                 EXPLOSION_POWERS.remove(posKey);
+                System.out.println("[EZNuclear] Cleaned up stored power for position: " + pos);
+
+                // Mark this position as processed to prevent re-interception
+                PROCESSED_POSITIONS.add(posKey);
+                PROCESSED_POSITIONS_TIME.put(posKey, System.currentTimeMillis());
+                System.out.println("[EZNuclear] Marked position " + pos + " as processed to prevent re-interception");
             }
         }
+        System.out.println("[EZNuclear] processManualTriggers completed for " + (isDE ? "DE" : "IC2"));
     }
 
     /**
@@ -497,6 +578,10 @@ public class PendingMeltdown {
 
         // Clean up stored power
         EXPLOSION_POWERS.remove(foundPosKey);
+
+        // Mark this position as processed to prevent re-interception
+        PROCESSED_POSITIONS.add(foundPosKey);
+        PROCESSED_POSITIONS_TIME.put(foundPosKey, System.currentTimeMillis());
     }
 
     @SubscribeEvent
