@@ -33,6 +33,7 @@ dependencies {
     configurations.configureEach {
         exclude group: 'com.github.GTNewHorizons', module: 'Baubles'
     }
+    implementation ("net.industrial-craft:industrialcraft-2:2.2.828-experimental:dev")
 
 }
 

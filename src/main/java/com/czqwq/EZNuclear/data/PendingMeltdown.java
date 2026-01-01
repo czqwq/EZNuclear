@@ -10,12 +10,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.ChunkCoordinates;
-import net.minecraft.world.Explosion;
 import net.minecraft.world.WorldServer;
 import net.minecraftforge.event.ServerChatEvent;
-import net.minecraftforge.event.world.ExplosionEvent;
 
-import com.czqwq.EZNuclear.Config;
 import com.czqwq.EZNuclear.util.Constants;
 
 import cpw.mods.fml.common.eventhandler.EventPriority;
@@ -500,102 +497,6 @@ public class PendingMeltdown {
 
         // Clean up stored power
         EXPLOSION_POWERS.remove(foundPosKey);
-    }
-
-    @SubscribeEvent
-    public void onExplosionStart(ExplosionEvent.Start event) {
-        try {
-            Explosion explosion = event.explosion;
-            if (explosion == null) return;
-            int ex = (int) Math.floor(explosion.explosionX);
-            int ey = (int) Math.floor(explosion.explosionY);
-            int ez = (int) Math.floor(explosion.explosionZ);
-            ChunkCoordinates pos = new ChunkCoordinates(ex, ey, ez);
-            // LOGGER.info("PendingMeltdown.onExplosionStart: detected explosion at {}", pos);
-
-            // If reentry present, allow
-            if (consumeReentry(pos)) {
-                // LOGGER.info("PendingMeltdown.onExplosionStart: reentry present for {}, allowing explosion", pos);
-                return;
-            }
-
-            // Cancel and reschedule via scheduler
-            event.setCanceled(true);
-            // LOGGER.info(
-            // "PendingMeltdown.onExplosionStart: cancelled explosive at {}, scheduling via PendingMeltdown",
-            // pos);
-
-            schedule(pos, () -> {
-                try {
-                    // recreate and trigger explosion on server thread
-                    // LOGGER.info("PendingMeltdown: executing scheduled explosion for {}", pos);
-
-                    // re-create explosion instance using existing Explosion class if necessary
-                    // Find the world field on Explosion via reflection (common names: world, worldObj)
-                    java.lang.reflect.Field worldField = null;
-                    Object worldObj = null;
-                    try {
-                        worldField = explosion.getClass()
-                            .getDeclaredField("world");
-                        worldField.setAccessible(true);
-                        worldObj = worldField.get(explosion);
-                    } catch (NoSuchFieldException nsf) {
-                        // try common alternative name
-                        try {
-                            worldField = explosion.getClass()
-                                .getDeclaredField("worldObj");
-                            worldField.setAccessible(true);
-                            worldObj = worldField.get(explosion);
-                        } catch (NoSuchFieldException nsf2) {
-                            // scan declared fields for a World typed field
-                            for (java.lang.reflect.Field f : explosion.getClass()
-                                .getDeclaredFields()) {
-                                if (net.minecraft.world.World.class.isAssignableFrom(f.getType())) {
-                                    f.setAccessible(true);
-                                    worldObj = f.get(explosion);
-                                    worldField = f;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    // Get dimension from the world object
-                    int dimension = 0;
-                    if (worldObj instanceof net.minecraft.world.World) {
-                        net.minecraft.world.World w = (net.minecraft.world.World) worldObj;
-                        dimension = w.provider.dimensionId;
-                    }
-
-                    markReentry(pos, dimension);
-
-                    if (worldObj instanceof net.minecraft.world.World) {
-                        net.minecraft.world.World w = (net.minecraft.world.World) worldObj;
-                        // Use IC2 ExplosionIC2 instead of vanilla Explosion
-                        ExplosionIC2 e = new ExplosionIC2(
-                            w,
-                            explosion.getExplosivePlacedBy(),
-                            explosion.explosionX,
-                            explosion.explosionY,
-                            explosion.explosionZ,
-                            explosion.explosionSize,
-                            0.01F,
-                            ExplosionIC2.Type.Nuclear);
-                        e.doExplosion();
-                    } else {
-                        // LOGGER.warn(
-                        // "PendingMeltdown: could not locate Explosion.world field; skipping scheduled explosion for
-                        // {}",
-                        // pos);
-                    }
-                } catch (Throwable t) {
-                    // LOGGER.warn("Failed to perform scheduled explosion for {}: {}", pos, t.getMessage());
-                }
-            }, Config.explosionDelaySeconds * 1000L);
-
-        } catch (Throwable t) {
-            // LOGGER.warn("onExplosionStart handler failed: {}", t.getMessage());
-        }
     }
 
     @SubscribeEvent
