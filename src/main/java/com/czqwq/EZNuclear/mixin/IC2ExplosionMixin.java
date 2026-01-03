@@ -16,6 +16,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import com.czqwq.EZNuclear.Config;
+import com.czqwq.EZNuclear.EZNuclear;
 import com.czqwq.EZNuclear.data.PendingMeltdown;
 import com.czqwq.EZNuclear.util.MessageUtils;
 
@@ -26,7 +27,7 @@ import gregtech.api.util.GTUtility;
 public class IC2ExplosionMixin {
 
     static {
-        System.out.println("[EZNuclear] IC2ExplosionMixin loaded");
+        EZNuclear.LOG.info("[EZNuclear] IC2ExplosionMixin loaded");
     }
 
     // Flag to allow the deferred explosion to run once without being re-cancelled
@@ -60,6 +61,7 @@ public class IC2ExplosionMixin {
                 ey = (int) Math.floor(thisExplosion.explosionY);
                 ez = (int) Math.floor(thisExplosion.explosionZ);
             } catch (Exception directAccessException) {
+                EZNuclear.LOG.warn("[EZNuclear] Direct field access failed: " + directAccessException.getMessage());
                 // System.out.println("[EZNuclear] Direct field access failed, trying reflection on parent class");
                 // If direct access fails, try using reflection
                 try {
@@ -85,6 +87,7 @@ public class IC2ExplosionMixin {
             }
 
         } catch (Exception e) {
+            EZNuclear.LOG.warn("[EZNuclear] Exception while trying to get coordinates: " + e.getMessage());
             // System.out.println("[EZNuclear] Exception while trying to get coordinates: " + e.getMessage());
             // e.printStackTrace();
         }
@@ -149,7 +152,8 @@ public class IC2ExplosionMixin {
                 dimension = world.provider.dimensionId;
             }
         } catch (Exception e) {
-            // System.out.println("[EZNuclear] Could not get dimension, using default 0");
+            EZNuclear.LOG
+                .warn("[EZNuclear] Could not get dimension from explosion, using default 0: " + e.getMessage());
         }
 
         // Check if this position has recently had a manual trigger to prevent duplicate processing
@@ -200,8 +204,8 @@ public class IC2ExplosionMixin {
                     dimensionId = world.provider.dimensionId;
                 }
             } catch (Exception e) {
-                // System.out.println("[EZNuclear] Could not get dimension, using default 0");
-                // e.printStackTrace();
+                EZNuclear.LOG
+                    .warn("[EZNuclear] Could not get dimension for manual trigger, using default 0: " + e.getMessage());
             }
 
             // Mark this position for manual trigger with stored power and dimension

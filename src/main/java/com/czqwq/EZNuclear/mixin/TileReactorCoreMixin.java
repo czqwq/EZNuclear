@@ -8,6 +8,7 @@ import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.ChunkCoordinates;
 import net.minecraft.util.StatCollector;
 import net.minecraft.world.World;
+import net.minecraft.world.WorldServer;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -16,6 +17,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import com.brandon3055.draconicevolution.common.tileentities.multiblocktiles.reactor.TileReactorCore;
 import com.czqwq.EZNuclear.Config;
+import com.czqwq.EZNuclear.EZNuclear;
 import com.czqwq.EZNuclear.data.PendingMeltdown;
 import com.czqwq.EZNuclear.util.MessageUtils;
 
@@ -27,9 +29,34 @@ public abstract class TileReactorCoreMixin {
 
     // reentry is managed by PendingMeltdown to keep a single source of truth
 
+    /**
+     * Helper method to get WorldServer by dimension ID.
+     * Since dimension IDs can be negative or high values that don't match array indices,
+     * we need to find the WorldServer by iterating through the available worlds.
+     */
+    private static WorldServer getWorldServerByDimension(MinecraftServer server, int dimensionId) {
+        if (server == null || server.worldServers == null) {
+            return null;
+        }
+
+        for (WorldServer worldServer : server.worldServers) {
+            if (worldServer != null && worldServer.provider.dimensionId == dimensionId) {
+                return worldServer;
+            }
+        }
+
+        return null; // World with specified dimension not found
+    }
+
+    // reentry is managed by PendingMeltdown to keep a single source of truth
+
     @Inject(method = "goBoom", remap = false, at = @At("HEAD"), cancellable = true)
     private void onGoBoom(CallbackInfo ci) {
         // System.out.println("[EZNuclear] TileReactorCore.goBoom called");
+        // Get the tile entity to access position and world information
+        TileEntity te = (TileEntity) (Object) this;
+        ChunkCoordinates pos = new ChunkCoordinates(te.xCoord, te.yCoord, te.zCoord);
+
         // Check if DE explosions are disabled in config
         if (!Config.DEExplosion) {
             // Even if explosion is disabled, still send the message to players
@@ -45,8 +72,19 @@ public abstract class TileReactorCoreMixin {
                     MessageUtils.sendToSinglePlayer("info.ezunclear");
                 }
 
-                // Schedule the second message after delay
-                PendingMeltdown.schedule(new ChunkCoordinates(0, 0, 0), () -> {
+                // Get the world and dimension for proper scheduling
+                int dimId = 0;
+                if (te.getWorldObj() != null) {
+                    try {
+                        dimId = te.getWorldObj().provider.dimensionId;
+                    } catch (Exception e) {
+                        EZNuclear.LOG
+                            .warn("[EZNuclear] Could not get dimension from world, using default 0: " + e.getMessage());
+                    }
+                }
+
+                // Schedule the second message after delay using actual position
+                PendingMeltdown.schedule(pos, () -> {
                     MinecraftServer srv = MinecraftServer.getServer();
                     if (srv != null) {
                         if (!srv.isSinglePlayer()) {
@@ -60,18 +98,23 @@ public abstract class TileReactorCoreMixin {
                             MessageUtils.sendToSinglePlayer("info.ezunclear.preventexplosion");
                         }
                     }
-                }, Config.explosionDelaySeconds * 1000L);
+                }, Config.explosionDelaySeconds * 1000L, dimId);
             }
 
             ci.cancel();
             return;
         }
 
-        TileEntity te = (TileEntity) (Object) this;
-        ChunkCoordinates pos = new ChunkCoordinates(te.xCoord, te.yCoord, te.zCoord);
-
         // Get dimension for position tracking
-        int dimension = (te.getWorldObj() != null) ? te.getWorldObj().provider.dimensionId : 0;
+        int dimension = 0;
+        if (te.getWorldObj() != null) {
+            try {
+                dimension = te.getWorldObj().provider.dimensionId;
+            } catch (Exception e) {
+                EZNuclear.LOG
+                    .warn("[EZNuclear] Could not get dimension from world, using default 0: " + e.getMessage());
+            }
+        }
         // System.out.println("[EZNuclear] DE goBoom at position: " + pos + " in dimension: " + dimension);
 
         // Check if this position has recently had a manual trigger to prevent duplicate processing
@@ -100,7 +143,9 @@ public abstract class TileReactorCoreMixin {
                 // Mark this position for DE manual trigger with configured power
                 PendingMeltdown.markDEManualTriggerWithPower(
                     pos,
-                    (te.getWorldObj() != null) ? te.getWorldObj().provider.dimensionId : 0,
+                    (te.getWorldObj() != null)
+                        ? (te.getWorldObj().provider.dimensionId >= 0 ? te.getWorldObj().provider.dimensionId : 0)
+                        : 0,
                     Config.DEExplosionPower);
                 // System.out.println("[EZNuclear] Marked DE explosion for manual trigger at position: " + pos);
             } else {
@@ -132,15 +177,22 @@ public abstract class TileReactorCoreMixin {
         final int sx = te.xCoord;
         final int sy = te.yCoord;
         final int sz = te.zCoord;
-        final int sdim = (te.getWorldObj() != null) ? te.getWorldObj().provider.dimensionId : 0;
+        int sdim = 0;
+        if (te.getWorldObj() != null) {
+            try {
+                sdim = te.getWorldObj().provider.dimensionId;
+            } catch (Exception e) {
+                EZNuclear.LOG
+                    .warn("[EZNuclear] Could not get dimension from world, using default 0: " + e.getMessage());
+            }
+        }
+        final int finalSdim = sdim; // Make sdim final to be captured by lambda
         return () -> {
             // Lookup world and tile entity at execution time to avoid stale references
             net.minecraft.server.MinecraftServer srvLookup = net.minecraft.server.MinecraftServer.getServer();
             net.minecraft.world.WorldServer worldServer = null;
-            if (srvLookup != null && srvLookup.worldServers != null
-                && sdim >= 0
-                && sdim < srvLookup.worldServers.length) {
-                worldServer = srvLookup.worldServers[sdim];
+            if (srvLookup != null) {
+                worldServer = getWorldServerByDimension(srvLookup, finalSdim);
             }
             TileReactorCore reactor = null;
             World world;
@@ -158,7 +210,7 @@ public abstract class TileReactorCoreMixin {
             ChunkCoordinates pos = new ChunkCoordinates(sx, sy, sz);
             if (Config.requireCommandToExplode) {
                 // If manual trigger is required, mark this position for manual trigger with power
-                PendingMeltdown.markDEManualTriggerWithPower(pos, sdim, Config.DEExplosionPower);
+                PendingMeltdown.markDEManualTriggerWithPower(pos, finalSdim, Config.DEExplosionPower);
 
                 // In manual mode, we don't schedule the interaction message automatically
                 // The message is sent when the player manually triggers the explosion
@@ -193,22 +245,8 @@ public abstract class TileReactorCoreMixin {
                     // create a ReactorExplosion directly with our configured power
                     float power = (float) Config.DEExplosionPower;
 
-                    // Create DE's ReactorExplosion with configured power
-                    Class<?> reClass = Class.forName(
-                        "com.brandon3055.draconicevolution.common.tileentities.multiblocktiles.reactor.ReactorExplosion");
-                    java.lang.reflect.Constructor<?> ctor = reClass
-                        .getConstructor(net.minecraft.world.World.class, int.class, int.class, int.class, float.class);
-                    Object newExp = ctor.newInstance(world, sx, sy, sz, power);
-
-                    // Add to process handler
-                    Class<?> iProcessClass = Class.forName("com.brandon3055.brandonscore.common.handlers.IProcess");
-                    java.lang.reflect.Method addMethod = Class
-                        .forName("com.brandon3055.brandonscore.common.handlers.ProcessHandler")
-                        .getMethod("addProcess", iProcessClass);
-                    addMethod.invoke(null, newExp);
-
-                    // Remove the core block after triggering the explosion
-                    world.setBlockToAir(sx, sy, sz);
+                    // Use the common method from PendingMeltdown to create and execute DE explosion
+                    com.czqwq.EZNuclear.data.PendingMeltdown.createAndExecuteDEExplosion(world, sx, sy, sz, power);
                 } else {
                     throw new IllegalStateException("TileReactorCore not found at " + pos);
                 }
@@ -217,44 +255,8 @@ public abstract class TileReactorCoreMixin {
                 try {
                     float power = (float) Config.DEExplosionPower; // Use configured power instead of dynamic
                                                                    // calculation
-                    // create a DE ReactorExplosion and run it via ProcessHandler
-                    try {
-                        if (world != null) {
-                            // Use DE's ReactorExplosion class with configured power
-                            Class<?> reClass = Class.forName(
-                                "com.brandon3055.draconicevolution.common.tileentities.multiblocktiles.reactor.ReactorExplosion");
-                            java.lang.reflect.Constructor<?> ctor = reClass.getConstructor(
-                                net.minecraft.world.World.class,
-                                int.class,
-                                int.class,
-                                int.class,
-                                float.class);
-                            Object newExp = ctor.newInstance(world, sx, sy, sz, power);
-
-                            // Add to process handler
-                            Class<?> iProcessClass = Class
-                                .forName("com.brandon3055.brandonscore.common.handlers.IProcess");
-                            java.lang.reflect.Method addMethod = Class
-                                .forName("com.brandon3055.brandonscore.common.handlers.ProcessHandler")
-                                .getMethod("addProcess", iProcessClass);
-                            addMethod.invoke(null, newExp);
-
-                            // Remove the core block after triggering the explosion
-                            world.setBlockToAir(sx, sy, sz);
-                        }
-                    } catch (Exception ex) {
-                        // If DE classes are not available, fallback to vanilla explosion
-                        net.minecraft.world.Explosion vanillaExplosion = new net.minecraft.world.Explosion(
-                            world,
-                            null,
-                            (double) sx + 0.5D,
-                            (double) sy + 0.5D,
-                            (double) sz + 0.5D,
-                            power);
-                        vanillaExplosion.doExplosionA();
-                        vanillaExplosion.doExplosionB(true);
-                        world.setBlockToAir(sx, sy, sz);
-                    }
+                    // Use the common method from PendingMeltdown to create and execute DE explosion
+                    com.czqwq.EZNuclear.data.PendingMeltdown.createAndExecuteDEExplosion(world, sx, sy, sz, power);
                 } catch (Throwable ex) {
                     // Failed fallback explosion
                     // System.out.println("[EZNuclear] Failed to create DE explosion fallback: " + ex.getMessage());

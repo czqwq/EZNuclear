@@ -12,6 +12,7 @@ public class Config {
     public static int explosionDelaySeconds = 5;
     public static double IC2ExplosionPower = 100.0;
     public static double DEExplosionPower = 100.0;
+    public static int taskTimeoutMinutes = 10; // Default 10 minutes for scheduled tasks cleanup
 
     public static void synchronizeConfiguration(File configFile) {
         Configuration configuration = new Configuration(configFile);
@@ -51,6 +52,13 @@ public class Config {
             0.0f,
             Float.MAX_VALUE,
             "Fixed power value for Draconic Evolution reactor explosions when requireCommandToExplode is enabled (default: 100.0)");
+        taskTimeoutMinutes = configuration.getInt(
+            "taskTimeoutMinutes",
+            Configuration.CATEGORY_GENERAL,
+            taskTimeoutMinutes,
+            1,
+            1440, // Max 24 hours
+            "Timeout in minutes for scheduled tasks before they are removed (default: 10 minutes)");
 
         if (configuration.hasChanged()) {
             configuration.save();

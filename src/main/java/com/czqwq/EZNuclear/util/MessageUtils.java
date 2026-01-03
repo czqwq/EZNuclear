@@ -16,9 +16,14 @@ public class MessageUtils {
         MinecraftServer server = MinecraftServer.getServer();
         if (server != null) {
             if (!server.isSinglePlayer()) {
-                List<EntityPlayerMP> players = server.getConfigurationManager().playerEntityList;
-                for (EntityPlayerMP p : players) {
-                    GTUtility.sendChatToPlayer(p, StatCollector.translateToLocal(messageKey));
+                if (server.getConfigurationManager() != null
+                    && server.getConfigurationManager().playerEntityList != null) {
+                    List<EntityPlayerMP> players = server.getConfigurationManager().playerEntityList;
+                    for (EntityPlayerMP p : players) {
+                        if (p != null) {
+                            GTUtility.sendChatToPlayer(p, StatCollector.translateToLocal(messageKey));
+                        }
+                    }
                 }
             } else {
                 sendToSinglePlayer(messageKey);
@@ -31,17 +36,22 @@ public class MessageUtils {
             Class<?> mcClass = Class.forName("net.minecraft.client.Minecraft");
             Object mc = mcClass.getMethod("getMinecraft")
                 .invoke(null);
-            Object thePlayer = mcClass.getField("thePlayer")
-                .get(mc);
-            if (thePlayer != null) {
-                Class<?> chatClass = Class.forName("net.minecraft.util.ChatComponentTranslation");
-                Object chat = chatClass.getConstructor(String.class, Object[].class)
-                    .newInstance(messageKey, new Object[0]);
-                Class<?> iChatClass = Class.forName("net.minecraft.util.IChatComponent");
-                thePlayer.getClass()
-                    .getMethod("addChatMessage", iChatClass)
-                    .invoke(thePlayer, chat);
+            if (mc != null) {
+                Object thePlayer = mcClass.getField("thePlayer")
+                    .get(mc);
+                if (thePlayer != null) {
+                    Class<?> chatClass = Class.forName("net.minecraft.util.ChatComponentTranslation");
+                    Object chat = chatClass.getConstructor(String.class, Object[].class)
+                        .newInstance(messageKey, new Object[0]);
+                    Class<?> iChatClass = Class.forName("net.minecraft.util.IChatComponent");
+                    thePlayer.getClass()
+                        .getMethod("addChatMessage", iChatClass)
+                        .invoke(thePlayer, chat);
+                }
             }
+        } catch (ClassNotFoundException e) {
+            EZNuclear.LOG.debug(
+                "Client-side Minecraft classes not available, skipping single player message: " + e.getMessage());
         } catch (Throwable t) {
             EZNuclear.LOG.warn("Failed to send message to single player: " + t.getMessage());
         }
@@ -52,9 +62,14 @@ public class MessageUtils {
         MinecraftServer server = MinecraftServer.getServer();
         if (server != null) {
             if (!server.isSinglePlayer()) {
-                List<EntityPlayerMP> players = server.getConfigurationManager().playerEntityList;
-                for (EntityPlayerMP p : players) {
-                    GTUtility.sendChatToPlayer(p, StatCollector.translateToLocalFormatted(messageKey, params));
+                if (server.getConfigurationManager() != null
+                    && server.getConfigurationManager().playerEntityList != null) {
+                    List<EntityPlayerMP> players = server.getConfigurationManager().playerEntityList;
+                    for (EntityPlayerMP p : players) {
+                        if (p != null) {
+                            GTUtility.sendChatToPlayer(p, StatCollector.translateToLocalFormatted(messageKey, params));
+                        }
+                    }
                 }
             } else {
                 sendToSinglePlayer(messageKey, params);
@@ -67,17 +82,22 @@ public class MessageUtils {
             Class<?> mcClass = Class.forName("net.minecraft.client.Minecraft");
             Object mc = mcClass.getMethod("getMinecraft")
                 .invoke(null);
-            Object thePlayer = mcClass.getField("thePlayer")
-                .get(mc);
-            if (thePlayer != null) {
-                Class<?> chatClass = Class.forName("net.minecraft.util.ChatComponentTranslation");
-                Object chat = chatClass.getConstructor(String.class, Object[].class)
-                    .newInstance(messageKey, params);
-                Class<?> iChatClass = Class.forName("net.minecraft.util.IChatComponent");
-                thePlayer.getClass()
-                    .getMethod("addChatMessage", iChatClass)
-                    .invoke(thePlayer, chat);
+            if (mc != null) {
+                Object thePlayer = mcClass.getField("thePlayer")
+                    .get(mc);
+                if (thePlayer != null) {
+                    Class<?> chatClass = Class.forName("net.minecraft.util.ChatComponentTranslation");
+                    Object chat = chatClass.getConstructor(String.class, Object[].class)
+                        .newInstance(messageKey, params);
+                    Class<?> iChatClass = Class.forName("net.minecraft.util.IChatComponent");
+                    thePlayer.getClass()
+                        .getMethod("addChatMessage", iChatClass)
+                        .invoke(thePlayer, chat);
+                }
             }
+        } catch (ClassNotFoundException e) {
+            EZNuclear.LOG.debug(
+                "Client-side Minecraft classes not available, skipping single player message: " + e.getMessage());
         } catch (Throwable t) {
             EZNuclear.LOG.warn("Failed to send message to single player: " + t.getMessage());
         }

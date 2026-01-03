@@ -13,6 +13,8 @@ import net.minecraft.util.ChunkCoordinates;
 import net.minecraft.world.WorldServer;
 import net.minecraftforge.event.ServerChatEvent;
 
+import com.czqwq.EZNuclear.Config;
+import com.czqwq.EZNuclear.EZNuclear;
 import com.czqwq.EZNuclear.util.Constants;
 
 import cpw.mods.fml.common.eventhandler.EventPriority;
@@ -41,9 +43,59 @@ public class PendingMeltdown {
 
     // Map to track when a position was processed, to prevent re-processing for a certain time period
     private static final Map<PosKey, Long> PROCESSED_POSITIONS_TIME = new ConcurrentHashMap<>();
+    // Map to track when a scheduled task was created, to prevent memory leaks
+    private static final Map<PosKey, Long> SCHEDULED_TASK_CREATION_TIME = new ConcurrentHashMap<>();
+
+    // Queue for deferred addition of processes to avoid ConcurrentModificationException
+    private static final List<Object> DEFERRED_PROCESS_QUEUE = new CopyOnWriteArrayList<>();
 
     // Time window (in milliseconds) to prevent re-processing of the same position after manual trigger
     private static final long PROCESSING_WINDOW_MS = 10000; // 10 seconds
+
+    /**
+     * Helper method to get WorldServer by dimension ID.
+     * Since dimension IDs can be negative or high values that don't match array indices,
+     * we need to find the WorldServer by iterating through the available worlds.
+     */
+    private static WorldServer getWorldServerByDimension(MinecraftServer server, int dimensionId) {
+        if (server == null || server.worldServers == null) {
+            return null;
+        }
+
+        for (WorldServer worldServer : server.worldServers) {
+            if (worldServer != null && worldServer.provider.dimensionId == dimensionId) {
+                return worldServer;
+            }
+        }
+
+        return null; // World with specified dimension not found
+    }
+
+    /**
+     * Process any deferred additions to the ProcessHandler to avoid ConcurrentModificationException.
+     */
+    private static void processDeferredProcesses() {
+        if (DEFERRED_PROCESS_QUEUE.isEmpty()) {
+            return;
+        }
+
+        // Process all deferred additions safely
+        List<Object> processesToAdd = new ArrayList<>(DEFERRED_PROCESS_QUEUE);
+        DEFERRED_PROCESS_QUEUE.clear();
+
+        for (Object process : processesToAdd) {
+            try {
+                // Use reflection to call ProcessHandler.addProcess
+                Class<?> processHandlerClass = Class
+                    .forName("com.brandon3055.brandonscore.common.handlers.ProcessHandler");
+                Class<?> iProcessClass = Class.forName("com.brandon3055.brandonscore.common.handlers.IProcess");
+                java.lang.reflect.Method addMethod = processHandlerClass.getMethod("addProcess", iProcessClass);
+                addMethod.invoke(null, process);
+            } catch (Exception e) {
+                EZNuclear.LOG.error("[EZNuclear] Error adding deferred process: " + e.getMessage(), e);
+            }
+        }
+    }
 
     public static boolean isAllowingNextExplosion() {
         return allowNextExplosion;
@@ -82,7 +134,7 @@ public class PendingMeltdown {
             this.x = c.posX;
             this.y = c.posY;
             this.z = c.posZ;
-            this.dim = 0;
+            this.dim = 0; // Default to 0, but callers should provide dimension when possible
         }
 
         PosKey(ChunkCoordinates c, int dim) {
@@ -119,7 +171,7 @@ public class PendingMeltdown {
 
     // Overloads that include dimension (preferred) ------------------------------------------------
     public static boolean schedule(ChunkCoordinates pos, Runnable task, long delayMs, int dimension) {
-        System.out.println("[EZNuclear] Scheduling task for position: " + pos + " with delay: " + delayMs + "ms");
+        EZNuclear.LOG.debug("[EZNuclear] Scheduling task for position: " + pos + " with delay: " + delayMs + "ms");
         if (pos == null || task == null) return false;
         PosKey key = new PosKey(pos, dimension);
         // 不管位置是否已被标记，都添加任务
@@ -132,7 +184,9 @@ public class PendingMeltdown {
         // executeAt);
         Scheduled scheduled = new Scheduled(executeAt, task, key);
         SCHEDULED.add(scheduled);
-        System.out.println("[EZNuclear] Task added to SCHEDULED list: " + scheduled);
+        // Track when this task was created to enable timeout cleanup
+        SCHEDULED_TASK_CREATION_TIME.put(key, System.currentTimeMillis());
+        EZNuclear.LOG.debug("[EZNuclear] Task added to SCHEDULED list: " + scheduled);
         return true;
     }
 
@@ -161,13 +215,13 @@ public class PendingMeltdown {
 
     // Methods for manual trigger mechanism
     public static void markManualTrigger(ChunkCoordinates pos, int dimension) {
-        System.out.println("[EZNuclear] Marking position for manual trigger: " + pos + " dimension: " + dimension);
+        EZNuclear.LOG.debug("[EZNuclear] Marking position for manual trigger: " + pos + " dimension: " + dimension);
         if (pos == null) return;
         MANUAL_TRIGGER.add(new PosKey(pos, dimension));
     }
 
     public static void markManualTriggerWithPower(ChunkCoordinates pos, double power) {
-        System.out.println("[EZNuclear] Marking position for manual trigger with power: " + pos + " power: " + power);
+        EZNuclear.LOG.debug("[EZNuclear] Marking position for manual trigger with power: " + pos + " power: " + power);
         if (pos == null) return;
         // For this method, we use dimension 0 by default, but it would be better to pass dimension
         PosKey key = new PosKey(pos, 0);
@@ -176,7 +230,7 @@ public class PendingMeltdown {
     }
 
     public static void markManualTriggerWithPower(ChunkCoordinates pos, int dimension, double power) {
-        System.out.println(
+        EZNuclear.LOG.debug(
             "[EZNuclear] markManualTriggerWithPower called for position: " + pos
                 + " dimension: "
                 + dimension
@@ -186,11 +240,11 @@ public class PendingMeltdown {
         PosKey key = new PosKey(pos, dimension);
         MANUAL_TRIGGER.add(key);
         EXPLOSION_POWERS.put(key, power);
-        System.out.println("[EZNuclear] Added position " + pos + " to IC2 manual trigger set with power: " + power);
+        EZNuclear.LOG.debug("[EZNuclear] Added position " + pos + " to IC2 manual trigger set with power: " + power);
     }
 
     public static void markDEManualTriggerWithPower(ChunkCoordinates pos, int dimension, double power) {
-        System.out.println(
+        EZNuclear.LOG.debug(
             "[EZNuclear] markDEManualTriggerWithPower called for position: " + pos
                 + " dimension: "
                 + dimension
@@ -200,7 +254,7 @@ public class PendingMeltdown {
         PosKey key = new PosKey(pos, dimension);
         DE_MANUAL_TRIGGER.add(key);
         EXPLOSION_POWERS.put(key, power);
-        System.out.println("[EZNuclear] Added position " + pos + " to DE manual trigger set with power: " + power);
+        EZNuclear.LOG.debug("[EZNuclear] Added position " + pos + " to DE manual trigger set with power: " + power);
     }
 
     public static boolean consumeManualTrigger(ChunkCoordinates pos, int dimension) {
@@ -222,7 +276,7 @@ public class PendingMeltdown {
         PosKey key = new PosKey(pos, dimension);
 
         boolean shouldIgnore = PROCESSED_POSITIONS.contains(key);
-        System.out.println(
+        EZNuclear.LOG.debug(
             "[EZNuclear] shouldIgnoreExplosionAt: pos=" + pos
                 + ", dimension="
                 + dimension
@@ -231,7 +285,7 @@ public class PendingMeltdown {
 
         // Check if the position is in the recently processed set
         if (!shouldIgnore) {
-            System.out.println("[EZNuclear] Position " + pos + " not in PROCESSED_POSITIONS, allowing explosion");
+            EZNuclear.LOG.debug("[EZNuclear] Position " + pos + " not in PROCESSED_POSITIONS, allowing explosion");
             return false;
         }
 
@@ -240,7 +294,7 @@ public class PendingMeltdown {
         if (processedTime != null) {
             long timeDiff = System.currentTimeMillis() - processedTime;
             boolean inTimeWindow = timeDiff < PROCESSING_WINDOW_MS;
-            System.out.println(
+            EZNuclear.LOG.debug(
                 "[EZNuclear] Position " + pos
                     + " time check: diff="
                     + timeDiff
@@ -253,7 +307,7 @@ public class PendingMeltdown {
 
         // If we only have it in PROCESSED_POSITIONS but not in PROCESSED_POSITIONS_TIME,
         // consider it still in ignore window
-        System.out.println("[EZNuclear] Position " + pos + " in PROCESSED_POSITIONS but no time record, ignoring");
+        EZNuclear.LOG.debug("[EZNuclear] Position " + pos + " in PROCESSED_POSITIONS but no time record, ignoring");
         return true;
     }
 
@@ -283,6 +337,7 @@ public class PendingMeltdown {
         EXPLOSION_POWERS.clear(); // Also clear explosion powers to maintain consistency
         PROCESSED_POSITIONS.clear(); // Also clear processed positions to maintain consistency
         PROCESSED_POSITIONS_TIME.clear(); // Also clear processed positions time to maintain consistency
+        SCHEDULED_TASK_CREATION_TIME.clear(); // Also clear creation time map to prevent memory leaks
         // LOGGER.info("PendingMeltdown.executeAllNow: executing {} tasks immediately", copy.size());
         for (Scheduled s : copy) {
             try {
@@ -336,7 +391,7 @@ public class PendingMeltdown {
      * This creates a new explosion task and executes it immediately.
      */
     public static void triggerExplosionImmediately(ChunkCoordinates pos) {
-        System.out.println("[EZNuclear] triggerExplosionImmediately called for position: " + pos);
+        EZNuclear.LOG.debug("[EZNuclear] triggerExplosionImmediately called for position: " + pos);
         // We need to find the correct PosKey with dimension from the MANUAL_TRIGGER set
         PosKey foundPosKey = null;
         for (PosKey key : MANUAL_TRIGGER) {
@@ -347,7 +402,7 @@ public class PendingMeltdown {
         }
 
         if (foundPosKey == null) {
-            System.out.println("[EZNuclear] Position not marked for manual trigger: " + pos);
+            EZNuclear.LOG.debug("[EZNuclear] Position not marked for manual trigger: " + pos);
             return;
         }
 
@@ -359,7 +414,7 @@ public class PendingMeltdown {
         if (power == null) {
             power = 4.0; // Default power if not stored
         }
-        System.out.println("[EZNuclear] Using explosion power: " + power);
+        EZNuclear.LOG.debug("[EZNuclear] Using explosion power: " + power);
 
         // Set flag to allow the explosion to proceed without being re-cancelled
         setAllowNextExplosion();
@@ -367,21 +422,15 @@ public class PendingMeltdown {
         // Create and trigger the explosion immediately at the specified position
         MinecraftServer server = MinecraftServer.getServer();
         if (server != null) {
-            WorldServer world = server.worldServers[foundPosKey.dim]; // Use the correct dimension
-
-            // Create the IC2 explosion
-            ExplosionIC2 explosion = new ExplosionIC2(
-                world,
-                null,
-                pos.posX,
-                pos.posY,
-                pos.posZ,
-                power.floatValue(),
-                0.01F,
-                ExplosionIC2.Type.Nuclear);
-            explosion.doExplosion();
-
-            System.out.println("[EZNuclear] IC2 Explosion triggered at position: " + pos + " with power: " + power);
+            // Get the world by dimension ID instead of using it as array index
+            WorldServer world = getWorldServerByDimension(server, foundPosKey.dim);
+            if (world != null) {
+                createAndExecuteIC2Explosion(world, pos.posX, pos.posY, pos.posZ, power.floatValue());
+            } else {
+                EZNuclear.LOG.warn("[EZNuclear] World not found for dimension: " + foundPosKey.dim);
+            }
+        } else {
+            EZNuclear.LOG.warn("[EZNuclear] Minecraft server is null, cannot trigger explosion");
         }
 
         // Clean up stored power
@@ -394,23 +443,23 @@ public class PendingMeltdown {
 
     @SubscribeEvent(priority = EventPriority.NORMAL)
     public void onChat(ServerChatEvent event) {
-        System.out.println(
+        EZNuclear.LOG.debug(
             "[EZNuclear] onChat called with message: " + event.message
                 + " from player: "
                 + event.player.getCommandSenderName());
         String triggerMessage = Constants.COMMAND_EZUNCLEAR; // 你可以改成任何触发消息
 
         if (event.message != null && event.message.equals(triggerMessage)) {
-            System.out.println("[EZNuclear] Trigger message detected, executing all scheduled tasks");
+            EZNuclear.LOG.debug("[EZNuclear] Trigger message detected, executing all scheduled tasks");
             executeAllNow();
         }
 
         // Handle manual trigger command "坏了坏了"
         if (event.message != null && event.message.equals(Constants.COMMAND_OH_NO)) {
-            System.out.println(
+            EZNuclear.LOG.debug(
                 "[EZNuclear] Manual trigger command detected from player: " + event.player.getCommandSenderName());
-            System.out.println("[EZNuclear] IC2 Manual Trigger Set size: " + MANUAL_TRIGGER.size());
-            System.out.println("[EZNuclear] DE Manual Trigger Set size: " + DE_MANUAL_TRIGGER.size());
+            EZNuclear.LOG.debug("[EZNuclear] IC2 Manual Trigger Set size: " + MANUAL_TRIGGER.size());
+            EZNuclear.LOG.debug("[EZNuclear] DE Manual Trigger Set size: " + DE_MANUAL_TRIGGER.size());
 
             // Process IC2 explosions
             processManualTriggers(MANUAL_TRIGGER, false); // false = not DE
@@ -426,105 +475,99 @@ public class PendingMeltdown {
             positionsToTrigger.addAll(triggerSet);
         }
 
-        System.out.println(
+        EZNuclear.LOG.debug(
             "[EZNuclear] processManualTriggers called for " + (isDE ? "DE" : "IC2")
                 + ", found "
                 + positionsToTrigger.size()
                 + " positions to trigger");
-        System.out.println("[EZNuclear] triggerSet size before processing: " + triggerSet.size());
+        EZNuclear.LOG.debug("[EZNuclear] triggerSet size before processing: " + triggerSet.size());
         for (PosKey posKey : positionsToTrigger) {
             ChunkCoordinates pos = new ChunkCoordinates(posKey.x, posKey.y, posKey.z);
-            System.out.println("[EZNuclear] Triggering " + (isDE ? "DE" : "IC2") + " explosion at position: " + pos);
+            EZNuclear.LOG.debug("[EZNuclear] Triggering " + (isDE ? "DE" : "IC2") + " explosion at position: " + pos);
 
             if (triggerSet.contains(posKey)) {
                 triggerSet.remove(posKey);
-                System.out.println("[EZNuclear] Removed position " + pos + " from trigger set");
+                EZNuclear.LOG.debug("[EZNuclear] Removed position " + pos + " from trigger set");
 
                 // Get stored explosion power if available
                 Double power = EXPLOSION_POWERS.get(posKey);
                 if (power == null) {
                     power = 4.0; // Default power if not stored
                 }
-                System.out.println("[EZNuclear] Using " + (isDE ? "DE" : "IC2") + " explosion power: " + power);
+                EZNuclear.LOG.debug("[EZNuclear] Using " + (isDE ? "DE" : "IC2") + " explosion power: " + power);
 
                 // Set flag to allow the explosion to proceed without being re-cancelled
                 setAllowNextExplosion();
-                System.out.println("[EZNuclear] Set allowNextExplosion flag to true");
+                EZNuclear.LOG.debug("[EZNuclear] Set allowNextExplosion flag to true");
 
                 // Create and trigger the explosion immediately at the specified position
                 MinecraftServer server = MinecraftServer.getServer();
                 if (server != null) {
-                    WorldServer world = server.worldServers[posKey.dim]; // Use the correct dimension
+                    // Get the world by dimension ID instead of using it as array index
+                    WorldServer world = getWorldServerByDimension(server, posKey.dim);
+                    if (world != null) {
+                        if (isDE) {
+                            // Create the DE explosion using ReactorExplosion
+                            try {
+                                Class<?> reClass = Class.forName(
+                                    "com.brandon3055.draconicevolution.common.tileentities.multiblocktiles.reactor.ReactorExplosion");
+                                java.lang.reflect.Constructor<?> ctor = reClass.getConstructor(
+                                    net.minecraft.world.World.class,
+                                    int.class,
+                                    int.class,
+                                    int.class,
+                                    float.class);
+                                Object newExp = ctor
+                                    .newInstance(world, pos.posX, pos.posY, pos.posZ, power.floatValue());
 
-                    if (isDE) {
-                        // Create the DE explosion using ReactorExplosion
-                        try {
-                            Class<?> reClass = Class.forName(
-                                "com.brandon3055.draconicevolution.common.tileentities.multiblocktiles.reactor.ReactorExplosion");
-                            java.lang.reflect.Constructor<?> ctor = reClass.getConstructor(
-                                net.minecraft.world.World.class,
-                                int.class,
-                                int.class,
-                                int.class,
-                                float.class);
-                            Object newExp = ctor.newInstance(world, pos.posX, pos.posY, pos.posZ, power.floatValue());
+                                // Add to process handler (deferred to avoid ConcurrentModificationException)
+                                DEFERRED_PROCESS_QUEUE.add(newExp);
 
-                            // Add to process handler
-                            Class<?> iProcessClass = Class
-                                .forName("com.brandon3055.brandonscore.common.handlers.IProcess");
-                            java.lang.reflect.Method addMethod = Class
-                                .forName("com.brandon3055.brandonscore.common.handlers.ProcessHandler")
-                                .getMethod("addProcess", iProcessClass);
-                            addMethod.invoke(null, newExp);
-
-                            System.out.println(
-                                "[EZNuclear] DE ReactorExplosion triggered at position: " + pos
-                                    + " with power: "
-                                    + power);
-                        } catch (Exception e) {
-                            // Fallback to vanilla explosion if DE classes are not available
-                            net.minecraft.world.Explosion explosion = new net.minecraft.world.Explosion(
-                                world,
-                                null,
-                                pos.posX,
-                                pos.posY,
-                                pos.posZ,
-                                power.floatValue());
-                            explosion.doExplosionA();
-                            explosion.doExplosionB(true);
-                            System.out.println(
-                                "[EZNuclear] DE fallback vanilla explosion triggered at position: " + pos
-                                    + " with power: "
-                                    + power);
+                                EZNuclear.LOG.debug(
+                                    "[EZNuclear] DE ReactorExplosion triggered at position: " + pos
+                                        + " with power: "
+                                        + power);
+                            } catch (Exception e) {
+                                EZNuclear.LOG.error("[EZNuclear] Error creating DE explosion: " + e.getMessage(), e);
+                                // Fallback to vanilla explosion if DE classes are not available
+                                net.minecraft.world.Explosion explosion = new net.minecraft.world.Explosion(
+                                    world,
+                                    null,
+                                    pos.posX,
+                                    pos.posY,
+                                    pos.posZ,
+                                    power.floatValue());
+                                explosion.doExplosionA();
+                                explosion.doExplosionB(true);
+                                EZNuclear.LOG.debug(
+                                    "[EZNuclear] DE fallback vanilla explosion triggered at position: " + pos
+                                        + " with power: "
+                                        + power);
+                            }
+                        } else {
+                            // Create the IC2 explosion using the common helper method
+                            createAndExecuteIC2Explosion(world, pos.posX, pos.posY, pos.posZ, power.floatValue());
+                            EZNuclear.LOG.debug(
+                                "[EZNuclear] IC2 Explosion triggered at position: " + pos + " with power: " + power);
                         }
                     } else {
-                        // Create the IC2 explosion
-                        ExplosionIC2 explosion = new ExplosionIC2(
-                            world,
-                            null,
-                            pos.posX,
-                            pos.posY,
-                            pos.posZ,
-                            power.floatValue(),
-                            0.01F,
-                            ExplosionIC2.Type.Nuclear);
-                        explosion.doExplosion();
-                        System.out.println(
-                            "[EZNuclear] IC2 Explosion triggered at position: " + pos + " with power: " + power);
+                        EZNuclear.LOG.warn("[EZNuclear] World not found for dimension: " + posKey.dim);
                     }
+                } else {
+                    EZNuclear.LOG.warn("[EZNuclear] Minecraft server is null, cannot trigger explosion");
                 }
 
                 // Clean up stored power
                 EXPLOSION_POWERS.remove(posKey);
-                System.out.println("[EZNuclear] Cleaned up stored power for position: " + pos);
+                EZNuclear.LOG.debug("[EZNuclear] Cleaned up stored power for position: " + pos);
 
                 // Mark this position as processed to prevent re-interception
                 PROCESSED_POSITIONS.add(posKey);
                 PROCESSED_POSITIONS_TIME.put(posKey, System.currentTimeMillis());
-                System.out.println("[EZNuclear] Marked position " + pos + " as processed to prevent re-interception");
+                EZNuclear.LOG.debug("[EZNuclear] Marked position " + pos + " as processed to prevent re-interception");
             }
         }
-        System.out.println("[EZNuclear] processManualTriggers completed for " + (isDE ? "DE" : "IC2"));
+        EZNuclear.LOG.debug("[EZNuclear] processManualTriggers completed for " + (isDE ? "DE" : "IC2"));
     }
 
     /**
@@ -532,7 +575,7 @@ public class PendingMeltdown {
      * This creates a new explosion task and executes it immediately.
      */
     public static void triggerDEExplosionImmediately(ChunkCoordinates pos) {
-        System.out.println("[EZNuclear] triggerDEExplosionImmediately called for position: " + pos);
+        EZNuclear.LOG.debug("[EZNuclear] triggerDEExplosionImmediately called for position: " + pos);
         // We need to find the correct PosKey with dimension from the MANUAL_TRIGGER set
         PosKey foundPosKey = null;
         for (PosKey key : MANUAL_TRIGGER) {
@@ -543,7 +586,7 @@ public class PendingMeltdown {
         }
 
         if (foundPosKey == null) {
-            System.out.println("[EZNuclear] Position not marked for manual trigger: " + pos);
+            EZNuclear.LOG.debug("[EZNuclear] Position not marked for manual trigger: " + pos);
             return;
         }
 
@@ -555,25 +598,31 @@ public class PendingMeltdown {
         if (power == null) {
             power = 4.0; // Default power if not stored
         }
-        System.out.println("[EZNuclear] Using DE explosion power: " + power);
+        EZNuclear.LOG.debug("[EZNuclear] Using DE explosion power: " + power);
 
         // Create and trigger the explosion immediately at the specified position
         MinecraftServer server = MinecraftServer.getServer();
         if (server != null) {
-            WorldServer world = server.worldServers[foundPosKey.dim]; // Use the correct dimension
+            // Get the world by dimension ID instead of using it as array index
+            WorldServer world = getWorldServerByDimension(server, foundPosKey.dim);
+            if (world != null) {
+                // Create the vanilla explosion for DE
+                net.minecraft.world.Explosion explosion = new net.minecraft.world.Explosion(
+                    world,
+                    null,
+                    pos.posX,
+                    pos.posY,
+                    pos.posZ,
+                    power.floatValue());
+                explosion.doExplosionA();
+                explosion.doExplosionB(true);
 
-            // Create the vanilla explosion for DE
-            net.minecraft.world.Explosion explosion = new net.minecraft.world.Explosion(
-                world,
-                null,
-                pos.posX,
-                pos.posY,
-                pos.posZ,
-                power.floatValue());
-            explosion.doExplosionA();
-            explosion.doExplosionB(true);
-
-            System.out.println("[EZNuclear] DE Explosion triggered at position: " + pos + " with power: " + power);
+                EZNuclear.LOG.debug("[EZNuclear] DE Explosion triggered at position: " + pos + " with power: " + power);
+            } else {
+                EZNuclear.LOG.warn("[EZNuclear] World not found for dimension: " + foundPosKey.dim);
+            }
+        } else {
+            EZNuclear.LOG.warn("[EZNuclear] Minecraft server is null, cannot trigger DE explosion");
         }
 
         // Clean up stored power
@@ -622,8 +671,9 @@ public class PendingMeltdown {
         if (doScan) {
             try {
                 net.minecraft.server.MinecraftServer server = net.minecraft.server.MinecraftServer.getServer();
-                if (server != null) {
+                if (server != null && server.worldServers != null) {
                     for (net.minecraft.world.WorldServer ws : server.worldServers) {
+                        if (ws == null) continue; // Skip null worlds
                         try {
                             // Get the dimension ID for the world
                             int dimensionId = ws.provider.dimensionId;
@@ -684,20 +734,25 @@ public class PendingMeltdown {
                                             if (srv != null && !srv.isSinglePlayer()) {
                                                 List<net.minecraft.entity.player.EntityPlayerMP> players = srv
                                                     .getConfigurationManager().playerEntityList;
-                                                for (net.minecraft.entity.player.EntityPlayerMP p : players) {
-                                                    // Check if GTUtility exists before using it
-                                                    try {
-                                                        Class.forName("gregtech.api.util.GTUtility");
-                                                        gregtech.api.util.GTUtility.sendChatToPlayer(
-                                                            p,
-                                                            net.minecraft.util.StatCollector
-                                                                .translateToLocal("info.ezunclear.interact"));
-                                                    } catch (ClassNotFoundException e) {
-                                                        // GTUtility not available, use vanilla chat
-                                                        p.addChatMessage(
-                                                            new net.minecraft.util.ChatComponentText(
-                                                                net.minecraft.util.StatCollector
-                                                                    .translateToLocal("info.ezunclear.interact")));
+                                                if (players != null) {
+                                                    for (net.minecraft.entity.player.EntityPlayerMP p : players) {
+                                                        if (p != null) {
+                                                            // Check if GTUtility exists before using it
+                                                            try {
+                                                                Class.forName("gregtech.api.util.GTUtility");
+                                                                gregtech.api.util.GTUtility.sendChatToPlayer(
+                                                                    p,
+                                                                    net.minecraft.util.StatCollector
+                                                                        .translateToLocal("info.ezunclear.interact"));
+                                                            } catch (ClassNotFoundException e) {
+                                                                // GTUtility not available, use vanilla chat
+                                                                p.addChatMessage(
+                                                                    new net.minecraft.util.ChatComponentText(
+                                                                        net.minecraft.util.StatCollector
+                                                                            .translateToLocal(
+                                                                                "info.ezunclear.interact")));
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
@@ -728,19 +783,9 @@ public class PendingMeltdown {
                                                     int.class,
                                                     float.class);
                                                 Object newExp = ctor.newInstance(fws, fx, fy, fz, 10F);
-                                                // add to process handler
-                                                try {
-                                                    Class<?> iProcessClass = Class.forName(
-                                                        "com.brandon3055.brandonscore.common.handlers.IProcess");
-                                                    java.lang.reflect.Method addMethod = Class.forName(
-                                                        "com.brandon3055.brandonscore.common.handlers.ProcessHandler")
-                                                        .getMethod("addProcess", iProcessClass);
-                                                    addMethod.invoke(null, newExp);
-                                                } catch (Throwable t) {
-                                                    // LOGGER.warn(
-                                                    // "Failed to schedule ReactorExplosion via reflection: {}",
-                                                    // t.getMessage());
-                                                }
+                                                // add to process handler (deferred to avoid
+                                                // ConcurrentModificationException)
+                                                DEFERRED_PROCESS_QUEUE.add(newExp);
                                             } catch (Throwable t) {
                                                 // LOGGER.warn(
                                                 // "Failed to create ReactorExplosion fallback: {}",
@@ -755,11 +800,109 @@ public class PendingMeltdown {
                             }
                         } catch (Throwable t) {
                             // ignore per-world errors
+                            EZNuclear.LOG.warn("Error processing world during reactor scan: " + t.getMessage());
                         }
                     }
                 }
             } catch (Throwable t) {
                 // LOGGER.warn("PendingMeltdown.scan failed: {}", t.getMessage());
+                EZNuclear.LOG.warn("PendingMeltdown reactor scan failed: " + t.getMessage());
+            }
+        }
+
+        // Cleanup expired tasks to prevent memory leaks
+        cleanupExpiredTasks();
+
+        // Process any deferred additions to avoid ConcurrentModificationException
+        processDeferredProcesses();
+    }
+
+    /**
+     * Common method to create and execute DE explosion with proper error handling
+     */
+    public static void createAndExecuteDEExplosion(net.minecraft.world.World world, int x, int y, int z, float power) {
+        if (world == null) {
+            EZNuclear.LOG.warn("[EZNuclear] World is null, cannot create DE explosion");
+            return;
+        }
+
+        try {
+            // Create DE's ReactorExplosion with provided power
+            Class<?> reClass = Class.forName(
+                "com.brandon3055.draconicevolution.common.tileentities.multiblocktiles.reactor.ReactorExplosion");
+            java.lang.reflect.Constructor<?> ctor = reClass
+                .getConstructor(net.minecraft.world.World.class, int.class, int.class, int.class, float.class);
+            Object newExp = ctor.newInstance(world, x, y, z, power);
+
+            // Add to process handler (deferred to avoid ConcurrentModificationException)
+            DEFERRED_PROCESS_QUEUE.add(newExp);
+
+            // Remove the core block after triggering the explosion
+            world.setBlockToAir(x, y, z);
+        } catch (Exception ex) {
+            EZNuclear.LOG.error("[EZNuclear] Error creating DE explosion: " + ex.getMessage(), ex);
+            // If DE classes are not available, fallback to vanilla explosion
+            net.minecraft.world.Explosion vanillaExplosion = new net.minecraft.world.Explosion(
+                world,
+                null,
+                (double) x + 0.5D,
+                (double) y + 0.5D,
+                (double) z + 0.5D,
+                power);
+            vanillaExplosion.doExplosionA();
+            vanillaExplosion.doExplosionB(true);
+            world.setBlockToAir(x, y, z);
+        }
+    }
+
+    /**
+     * Common method to create and execute IC2 explosion with proper error handling
+     */
+    public static void createAndExecuteIC2Explosion(net.minecraft.world.World world, int x, int y, int z, float power) {
+        if (world == null) {
+            EZNuclear.LOG.warn("[EZNuclear] World is null, cannot create IC2 explosion");
+            return;
+        }
+
+        try {
+            // Create the IC2 explosion
+            ExplosionIC2 explosion = new ExplosionIC2(world, null, x, y, z, power, 0.01F, ExplosionIC2.Type.Nuclear);
+            explosion.doExplosion();
+
+            EZNuclear.LOG.debug(
+                "[EZNuclear] IC2 Explosion triggered at position: [" + x
+                    + ","
+                    + y
+                    + ","
+                    + z
+                    + "] with power: "
+                    + power);
+        } catch (Exception ex) {
+            EZNuclear.LOG.error("[EZNuclear] Error creating IC2 explosion: " + ex.getMessage(), ex);
+        }
+    }
+
+    /**
+     * Cleanup expired tasks to prevent memory leaks
+     */
+    private static void cleanupExpiredTasks() {
+        long now = System.currentTimeMillis();
+        long timeoutMs = Config.taskTimeoutMinutes * 60 * 1000L; // Convert minutes to milliseconds
+
+        List<Scheduled> expired = new ArrayList<>();
+        for (Scheduled s : SCHEDULED) {
+            Long creationTime = SCHEDULED_TASK_CREATION_TIME.get(s.pos);
+            if (creationTime != null && (now - creationTime) > timeoutMs) {
+                expired.add(s);
+            }
+        }
+
+        if (!expired.isEmpty()) {
+            SCHEDULED.removeAll(expired);
+            for (Scheduled s : expired) {
+                POSITIONS.remove(s.pos);
+                REENTRY.remove(s.pos);
+                SCHEDULED_TASK_CREATION_TIME.remove(s.pos);
             }
         }
     }
