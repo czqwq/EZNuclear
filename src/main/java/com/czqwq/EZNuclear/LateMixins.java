@@ -20,6 +20,6 @@ public class LateMixins implements ILateMixinLoader {
 
     @Override
     public @NotNull List<String> getMixins(Set<String> loadedMods) {
-        return new ArrayList<>(Arrays.asList("IC2ExplosionMixin", "TileReactorCoreMixin"));
+        return new ArrayList<>(Arrays.asList("IC2ExplosionMixin", "TileReactorCoreMixin", "ProcessHandlerMixin"));
     }
 }
