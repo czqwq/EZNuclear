@@ -73,12 +73,12 @@ public class ProcessHandlerMixin {
      * Intercept addProcess to queue new processes instead of adding them directly.
      * This prevents ConcurrentModificationException when processes are added during iteration.
      * 
-     * Note: All processes will be queued and added at the start of the next server tick,
-     * which matches the behavior of GTNewHorizons/BrandonsCore fix.
+     * Note: All processes will be queued and added during the onServerTick START phase,
+     * after the current iteration completes. This matches the behavior of GTNewHorizons/BrandonsCore fix.
      */
     @Inject(method = "addProcess", at = @At("HEAD"), cancellable = true, remap = false)
     private static void addProcessFix(IProcess process, CallbackInfo ci) {
-        // Queue the process to be added at the start of the next server tick
+        // Queue the process to be added after the current iteration completes
         newProcesses.add(process);
         ci.cancel();
     }
