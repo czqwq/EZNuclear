@@ -75,14 +75,16 @@ public class ProcessHandlerMixin {
                 }
             }
             
-            // Remove all dead processes in one operation (O(n) instead of O(n²))
-            // Synchronized to prevent concurrent modification
+            // Remove all dead processes and add new processes in one synchronized block
+            // This ensures atomic operations and prevents race conditions
             synchronized (processes) {
+                // Remove all dead processes in one operation (O(n) instead of O(n²))
                 if (!deadProcesses.isEmpty()) {
                     processes.removeAll(deadProcesses);
                 }
 
                 // Add any new processes that were queued during iteration
+                // Check and clear are atomic within this synchronized block
                 if (!newProcesses.isEmpty()) {
                     processes.addAll(newProcesses);
                     newProcesses.clear();
