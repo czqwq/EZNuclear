@@ -20,7 +20,8 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * Based on the fix from GTNewHorizons/BrandonsCore repository, but adapted for mixin usage
  * by iterating over a snapshot copy instead of directly over the shared list.
  * 
- * Reference: https://github.com/GTNewHorizons/BrandonsCore/blob/master/src/main/java/com/brandon3055/brandonscore/common/handlers/ProcessHandler.java
+ * Reference:
+ * https://github.com/GTNewHorizons/BrandonsCore/blob/master/src/main/java/com/brandon3055/brandonscore/common/handlers/ProcessHandler.java
  */
 @Mixin(value = com.brandon3055.brandonscore.common.handlers.ProcessHandler.class, remap = false)
 public class ProcessHandlerMixin {
@@ -59,7 +60,7 @@ public class ProcessHandlerMixin {
             synchronized (processes) {
                 snapshot = new ArrayList<IProcess>(processes);
             }
-            
+
             // Collect dead processes for efficient batch removal
             List<IProcess> deadProcesses = new ArrayList<IProcess>();
 
@@ -74,7 +75,7 @@ public class ProcessHandlerMixin {
                     process.updateProcess();
                 }
             }
-            
+
             // Remove all dead processes and add new processes in one synchronized block
             // This ensures atomic operations and prevents race conditions
             synchronized (processes) {
