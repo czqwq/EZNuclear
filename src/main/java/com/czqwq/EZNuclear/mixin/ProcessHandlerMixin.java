@@ -57,16 +57,24 @@ public class ProcessHandlerMixin {
             // This prevents ConcurrentModificationException even if processes list is modified
             // during iteration (e.g., during dimension changes, chunk unloading)
             List<IProcess> snapshot = new ArrayList<IProcess>(processes);
+            
+            // Collect dead processes for efficient batch removal
+            List<IProcess> deadProcesses = new ArrayList<IProcess>();
 
             // Iterate over the snapshot, not the original list
             for (IProcess process : snapshot) {
                 if (process.isDead()) {
-                    // Remove dead processes from the original list
-                    processes.remove(process);
+                    // Collect dead processes for batch removal
+                    deadProcesses.add(process);
                 } else {
                     // Update the process
                     process.updateProcess();
                 }
+            }
+            
+            // Remove all dead processes in one operation (O(n) instead of O(n²))
+            if (!deadProcesses.isEmpty()) {
+                processes.removeAll(deadProcesses);
             }
 
             // Add any new processes that were queued during iteration
