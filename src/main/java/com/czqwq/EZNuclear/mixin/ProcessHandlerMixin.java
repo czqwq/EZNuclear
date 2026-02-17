@@ -1,8 +1,8 @@
 package com.czqwq.EZNuclear.mixin;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -17,7 +17,9 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 /**
  * Mixin to fix ConcurrentModificationException in ProcessHandler.onServerTick
  * This occurs when reactor explosions add processes while the list is being iterated.
+ * 
  * Based on the fix from GTNewHorizons/BrandonsCore repository.
+ * Reference: https://github.com/GTNewHorizons/BrandonsCore/blob/master/src/main/java/com/brandon3055/brandonscore/common/handlers/ProcessHandler.java
  */
 @Mixin(value = com.brandon3055.brandonscore.common.handlers.ProcessHandler.class, remap = false)
 public class ProcessHandlerMixin {
@@ -25,14 +27,21 @@ public class ProcessHandlerMixin {
     @Shadow
     private static List<IProcess> processes;
 
-    // Thread-safe list for processes that are added during iteration
-    // This is our own field, not shadowed from the original class
-    private static final List<IProcess> newProcesses = new CopyOnWriteArrayList<IProcess>();
+    /**
+     * Separate list for processes that are added while iterating.
+     * This prevents ConcurrentModificationException by deferring additions until after iteration.
+     * Matches the approach used in GTNewHorizons/BrandonsCore.
+     */
+    private static List<IProcess> newProcesses = new ArrayList<IProcess>();
 
     /**
      * Fix ConcurrentModificationException by using Iterator for safe removal
      * and a separate list for new processes added during iteration.
-     * This matches the fix from GTNewHorizons/BrandonsCore.
+     * 
+     * The fix works by:
+     * 1. Using Iterator.remove() instead of List.remove() for safe removal during iteration
+     * 2. Queuing new process additions in a separate list
+     * 3. Adding queued processes after iteration completes
      */
     @Inject(method = "onServerTick", at = @At("HEAD"), cancellable = true, remap = false)
     private void onServerTickFix(TickEvent.ServerTickEvent event, CallbackInfo ci) {
@@ -61,13 +70,15 @@ public class ProcessHandlerMixin {
     }
 
     /**
-     * Intercept addProcess to use our newProcesses queue during server ticks.
+     * Intercept addProcess to queue new processes instead of adding them directly.
      * This prevents ConcurrentModificationException when processes are added during iteration.
+     * 
+     * Note: All processes will be queued and added at the start of the next server tick,
+     * which matches the behavior of GTNewHorizons/BrandonsCore fix.
      */
     @Inject(method = "addProcess", at = @At("HEAD"), cancellable = true, remap = false)
     private static void addProcessFix(IProcess process, CallbackInfo ci) {
-        // Always use the queue to ensure thread-safety
-        // The queue will be processed at the start of the next server tick
+        // Queue the process to be added at the start of the next server tick
         newProcesses.add(process);
         ci.cancel();
     }
