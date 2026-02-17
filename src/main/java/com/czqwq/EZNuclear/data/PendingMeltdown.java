@@ -633,8 +633,15 @@ public class PendingMeltdown {
         PROCESSED_POSITIONS_TIME.put(foundPosKey, System.currentTimeMillis());
     }
 
-    @SubscribeEvent
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onServerTick(TickEvent.ServerTickEvent event) {
+        // Process deferred additions at START to avoid ConcurrentModificationException
+        // This must happen before ProcessHandler.onServerTick runs
+        if (event.phase == TickEvent.Phase.START) {
+            processDeferredProcesses();
+            return;
+        }
+
         if (event.phase != TickEvent.Phase.END) return;
         // periodic scan for reactors with overheat when structure is invalid
         tickCounter++;

@@ -17,7 +17,7 @@ import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 @Mod(
     modid = EZNuclear.MODID,
     version = Tags.VERSION,
-    name = "EZNulcear",
+    name = "EZNuclear",
     acceptedMinecraftVersions = "[1.7.10]",
     dependencies = "required-after:IC2;" + "required-after:structurelib;"
         + "required-after:dreamcraft;"
