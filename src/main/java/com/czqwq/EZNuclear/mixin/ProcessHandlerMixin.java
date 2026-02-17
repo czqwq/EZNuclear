@@ -45,23 +45,26 @@ public class ProcessHandlerMixin {
      * 3. We cannot guarantee all modification paths go through our intercepted addProcess
      * 
      * The fix works by:
-     * 1. Creating a snapshot copy of the processes list before iteration
+     * 1. Creating a snapshot copy of the processes list before iteration (synchronized)
      * 2. Iterating over the snapshot to safely check and update each process
-     * 3. Removing dead processes from the original list after iteration
-     * 4. Adding queued processes from newProcesses after iteration completes
+     * 3. Removing dead processes from the original list after iteration (synchronized)
+     * 4. Adding queued processes from newProcesses after iteration completes (synchronized)
      */
     @Inject(method = "onServerTick", at = @At("HEAD"), cancellable = true, remap = false)
     private void onServerTickFix(TickEvent.ServerTickEvent event, CallbackInfo ci) {
         if (event.phase == TickEvent.Phase.START) {
             // Create a snapshot copy to iterate over safely
-            // This prevents ConcurrentModificationException even if processes list is modified
-            // during iteration (e.g., during dimension changes, chunk unloading)
-            List<IProcess> snapshot = new ArrayList<IProcess>(processes);
+            // Synchronized to prevent concurrent modification during copy
+            List<IProcess> snapshot;
+            synchronized (processes) {
+                snapshot = new ArrayList<IProcess>(processes);
+            }
             
             // Collect dead processes for efficient batch removal
             List<IProcess> deadProcesses = new ArrayList<IProcess>();
 
             // Iterate over the snapshot, not the original list
+            // This is safe even if processes list is modified during iteration
             for (IProcess process : snapshot) {
                 if (process.isDead()) {
                     // Collect dead processes for batch removal
@@ -73,14 +76,17 @@ public class ProcessHandlerMixin {
             }
             
             // Remove all dead processes in one operation (O(n) instead of O(n²))
-            if (!deadProcesses.isEmpty()) {
-                processes.removeAll(deadProcesses);
-            }
+            // Synchronized to prevent concurrent modification
+            synchronized (processes) {
+                if (!deadProcesses.isEmpty()) {
+                    processes.removeAll(deadProcesses);
+                }
 
-            // Add any new processes that were queued during iteration
-            if (!newProcesses.isEmpty()) {
-                processes.addAll(newProcesses);
-                newProcesses.clear();
+                // Add any new processes that were queued during iteration
+                if (!newProcesses.isEmpty()) {
+                    processes.addAll(newProcesses);
+                    newProcesses.clear();
+                }
             }
 
             // Cancel the original method execution to prevent ConcurrentModificationException
@@ -94,11 +100,15 @@ public class ProcessHandlerMixin {
      * 
      * Note: All processes will be queued and added during the onServerTick START phase,
      * after the current iteration completes. This matches the behavior of GTNewHorizons/BrandonsCore fix.
+     * Synchronized with processes list to ensure thread-safety.
      */
     @Inject(method = "addProcess", at = @At("HEAD"), cancellable = true, remap = false)
     private static void addProcessFix(IProcess process, CallbackInfo ci) {
         // Queue the process to be added after the current iteration completes
-        newProcesses.add(process);
+        // Use synchronization to match the thread-safety guarantees in onServerTickFix
+        synchronized (processes) {
+            newProcesses.add(process);
+        }
         ci.cancel();
     }
 }
