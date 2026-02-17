@@ -1,8 +1,8 @@
 package com.czqwq.EZNuclear.mixin;
 
-import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -16,8 +16,8 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 
 /**
  * Mixin to fix ConcurrentModificationException in ProcessHandler.onServerTick
- * This occurs when reactor explosions add processes while the list is being iterated
- * Based on the fix from GTNewHorizons/BrandonsCore
+ * This occurs when reactor explosions add processes while the list is being iterated.
+ * Based on the fix from GTNewHorizons/BrandonsCore repository.
  */
 @Mixin(value = com.brandon3055.brandonscore.common.handlers.ProcessHandler.class, remap = false)
 public class ProcessHandlerMixin {
@@ -25,9 +25,9 @@ public class ProcessHandlerMixin {
     @Shadow
     private static List<IProcess> processes;
 
-    // Shadow field for the newProcesses list that BrandonsCore might not have
-    // If it doesn't exist, we'll create it via injection
-    private static List<IProcess> newProcesses = new ArrayList<IProcess>();
+    // Thread-safe list for processes that are added during iteration
+    // This is our own field, not shadowed from the original class
+    private static final List<IProcess> newProcesses = new CopyOnWriteArrayList<IProcess>();
 
     /**
      * Fix ConcurrentModificationException by using Iterator for safe removal
@@ -61,10 +61,13 @@ public class ProcessHandlerMixin {
     }
 
     /**
-     * Intercept addProcess to use our newProcesses queue
+     * Intercept addProcess to use our newProcesses queue during server ticks.
+     * This prevents ConcurrentModificationException when processes are added during iteration.
      */
     @Inject(method = "addProcess", at = @At("HEAD"), cancellable = true, remap = false)
     private static void addProcessFix(IProcess process, CallbackInfo ci) {
+        // Always use the queue to ensure thread-safety
+        // The queue will be processed at the start of the next server tick
         newProcesses.add(process);
         ci.cancel();
     }
