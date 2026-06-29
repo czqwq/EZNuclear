@@ -20,9 +20,7 @@ import cpw.mods.fml.common.event.FMLPreInitializationEvent;
     name = "EZNuclear",
     acceptedMinecraftVersions = "[1.7.10]",
     dependencies = "required-after:IC2;" + "required-after:structurelib;"
-        + "required-after:dreamcraft;"
         + "required-after:gregtech;"
-        + "required-after:BrandonsCore;"
         + "required-after:DraconicEvolution;")
 
 public class EZNuclear {

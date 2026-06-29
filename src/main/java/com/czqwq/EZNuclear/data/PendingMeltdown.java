@@ -85,10 +85,11 @@ public class PendingMeltdown {
 
         for (Object process : processesToAdd) {
             try {
-                // Use reflection to call ProcessHandler.addProcess
+                // Use reflection to call ProcessHandler.addProcess (now in DE after BrandonsCore merge)
                 Class<?> processHandlerClass = Class
-                    .forName("com.brandon3055.brandonscore.common.handlers.ProcessHandler");
-                Class<?> iProcessClass = Class.forName("com.brandon3055.brandonscore.common.handlers.IProcess");
+                    .forName("com.brandon3055.draconicevolution.common.utils.handlers.ProcessHandler");
+                Class<?> iProcessClass = Class
+                    .forName("com.brandon3055.draconicevolution.common.utils.handlers.IProcess");
                 java.lang.reflect.Method addMethod = processHandlerClass.getMethod("addProcess", iProcessClass);
                 addMethod.invoke(null, process);
             } catch (Exception e) {

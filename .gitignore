@@ -1,6 +1,7 @@
 .gradle
 .settings
 /.idea/
+/tmp/
 /.vscode/
 /run/
 /build/
@@ -12,7 +13,7 @@
 /crash-reports/
 /logs/
 options.txt
-/saves/
+/run/saves/
 usernamecache.json
 banned-ips.json
 banned-players.json

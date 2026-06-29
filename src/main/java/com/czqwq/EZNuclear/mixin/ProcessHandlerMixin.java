@@ -9,21 +9,23 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import com.brandon3055.brandonscore.common.handlers.IProcess;
+import com.brandon3055.draconicevolution.common.utils.handlers.IProcess;
 
 import cpw.mods.fml.common.gameevent.TickEvent;
 
 /**
  * Mixin to fix ConcurrentModificationException in ProcessHandler.onServerTick
- * This occurs when reactor explosions add processes while the list is being iterated.
- * 
- * Based on the fix from GTNewHorizons/BrandonsCore repository, but adapted for mixin usage
- * by iterating over a snapshot copy instead of directly over the shared list.
- * 
- * Reference:
+ * and to add thread-safety via synchronized blocks.
+ *
+ * BrandonsCore has been merged into Draconic Evolution. The new DE ProcessHandler
+ * already queues additions via newProcesses internally, but this mixin adds
+ * synchronized blocks for additional thread-safety and uses snapshot iteration
+ * to guard against concurrent modification from other code paths.
+ *
+ * Original reference (BrandonsCore):
  * https://github.com/GTNewHorizons/BrandonsCore/blob/master/src/main/java/com/brandon3055/brandonscore/common/handlers/ProcessHandler.java
  */
-@Mixin(value = com.brandon3055.brandonscore.common.handlers.ProcessHandler.class, remap = false)
+@Mixin(value = com.brandon3055.draconicevolution.common.utils.handlers.ProcessHandler.class, remap = false)
 public class ProcessHandlerMixin {
 
     @Shadow
