@@ -10,7 +10,7 @@ elytraModpackVersion {
 
 dependencies {
     implementation(gtnhDev("GT5-Unofficial"))
-    implementation(gtnhDev("BrandonsCore"))
+    implementation rfg.deobf(files("libs/BrandonsCore-1.2.0-GTNH-dev.jar"))
     implementation(gtnhDev("NewHorizonsCoreMod"))
     implementation(gtnhDev("Mobs-Info"))
     implementation(gtnhDev("Galaxy-Space-GTNH"))
