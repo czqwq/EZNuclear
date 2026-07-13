@@ -10,6 +10,7 @@ import net.minecraft.util.ChatComponentTranslation;
 import net.minecraft.util.ChunkCoordinates;
 
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -34,8 +35,32 @@ public class IC2ExplosionMixin {
     @Unique
     private volatile boolean eznuclear_ignoreNext = false;
 
+    @Shadow
+    private net.minecraft.world.World worldObj;
+
+    @Shadow
+    private ic2.core.ExplosionIC2.Type type;
+
     @Inject(method = "doExplosion", at = @At("HEAD"), cancellable = true)
     private void onDoExplosion(CallbackInfo ci) {
+        // Only intercept nuclear explosions; let other IC2 explosions (machines,
+        // luminators, steam generators, dynamite, etc.) proceed normally
+        if (type != ic2.core.ExplosionIC2.Type.Nuclear) {
+            // Log non-nuclear explosions at DEBUG level for diagnostics
+            if (EZNuclear.LOG.isDebugEnabled()) {
+                net.minecraft.world.Explosion self = (net.minecraft.world.Explosion) (Object) this;
+                int dim = (worldObj != null) ? worldObj.provider.dimensionId : -1;
+                EZNuclear.LOG.debug(
+                    "[EZNuclear] Skipping non-nuclear IC2 explosion: type={}, pos=({},{},{}), dim={}, power={}",
+                    type,
+                    (int) self.explosionX,
+                    (int) self.explosionY,
+                    (int) self.explosionZ,
+                    dim,
+                    self.explosionSize);
+            }
+            return;
+        }
         // System.out.println("[EZNuclear] IC2ExplosionMixin.onDoExplosion called");
         // System.out.println("[EZNuclear] IC2 Explosion starting at HEAD injection");
 
@@ -142,18 +167,8 @@ public class IC2ExplosionMixin {
 
         // Check if this position was recently manually triggered to prevent re-scheduling
         int dimension = 0;
-        try {
-            net.minecraft.world.Explosion explosion = (net.minecraft.world.Explosion) (Object) this;
-            // Use reflection to access the private worldObj field
-            java.lang.reflect.Field worldObjField = net.minecraft.world.Explosion.class.getDeclaredField("worldObj");
-            worldObjField.setAccessible(true);
-            net.minecraft.world.World world = (net.minecraft.world.World) worldObjField.get(explosion);
-            if (world != null) {
-                dimension = world.provider.dimensionId;
-            }
-        } catch (Exception e) {
-            EZNuclear.LOG
-                .warn("[EZNuclear] Could not get dimension from explosion, using default 0: " + e.getMessage());
+        if (worldObj != null) {
+            dimension = worldObj.provider.dimensionId;
         }
 
         // Check if this position has recently had a manual trigger to prevent duplicate processing
@@ -193,19 +208,8 @@ public class IC2ExplosionMixin {
 
             // Get dimension from the world
             int dimensionId = 0;
-            try {
-                net.minecraft.world.Explosion explosion = (net.minecraft.world.Explosion) (Object) this;
-                // Use reflection to access the private worldObj field
-                java.lang.reflect.Field worldObjField = net.minecraft.world.Explosion.class
-                    .getDeclaredField("worldObj");
-                worldObjField.setAccessible(true);
-                net.minecraft.world.World world = (net.minecraft.world.World) worldObjField.get(explosion);
-                if (world != null) {
-                    dimensionId = world.provider.dimensionId;
-                }
-            } catch (Exception e) {
-                EZNuclear.LOG
-                    .warn("[EZNuclear] Could not get dimension for manual trigger, using default 0: " + e.getMessage());
+            if (worldObj != null) {
+                dimensionId = worldObj.provider.dimensionId;
             }
 
             // Mark this position for manual trigger with stored power and dimension
