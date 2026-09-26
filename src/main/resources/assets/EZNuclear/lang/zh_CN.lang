@@ -2,4 +2,5 @@
 info.ezunclear=核电，轻而易举啊！
 info.ezunclear.interact=坏了坏了
 info.ezunclear.preventexplosion=[EZNuclear]成功拦截了一个爆炸
+info.ezunclear.nopermission=[EZNuclear]你没有权限触发核电爆炸
 

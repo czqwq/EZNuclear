@@ -1,13 +1,8 @@
 package com.czqwq.EZNuclear.mixin;
 
-import static net.minecraft.util.StatCollector.translateToLocal;
-
-import java.util.List;
-
-import net.minecraft.entity.player.EntityPlayerMP;
-import net.minecraft.server.MinecraftServer;
-import net.minecraft.util.ChatComponentTranslation;
 import net.minecraft.util.ChunkCoordinates;
+import net.minecraft.world.Explosion;
+import net.minecraft.world.World;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -19,232 +14,149 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import com.czqwq.EZNuclear.Config;
 import com.czqwq.EZNuclear.EZNuclear;
 import com.czqwq.EZNuclear.data.PendingMeltdown;
+import com.czqwq.EZNuclear.util.Constants;
 import com.czqwq.EZNuclear.util.MessageUtils;
 
 import cpw.mods.fml.common.FMLCommonHandler;
-import gregtech.api.util.GTUtility;
+import ic2.core.ExplosionIC2;
 
-@Mixin(value = ic2.core.ExplosionIC2.class, remap = false)
+/**
+ * 拦截 IC2 核爆（核反应堆熔毁以及核弹实体产生的 {@link ExplosionIC2.Type#Nuclear} 爆炸）。
+ *
+ * <p>
+ * 判定顺序（很重要，改动前请先看这里）：
+ * <ol>
+ * <li>总开关 {@link Config#IC2Explosion}：关闭时任何 IC2 核爆都不允许发生，并清掉残留的一次性放行令牌；</li>
+ * <li>一次性放行令牌：手动触发时由本模组创建的那一次爆炸；</li>
+ * <li>{@link #eznuclear_ignoreNext}：本实例被延时后重新调用自己；</li>
+ * <li>同一位置已有排队中的爆炸：吞掉连锁反应造成的重复触发；</li>
+ * <li>该位置刚刚被处理过：放行原生爆炸（不再重复延时）；</li>
+ * <li>否则按 {@link Config#requireCommandToExplode} 决定手动等待还是延时爆炸。</li>
+ * </ol>
+ * 威力：{@link Config#isIC2PowerOverridden()} 为真时使用 {@link Config#IC2ManualExplosivePower}，
+ * 否则沿用 IC2 自己算出的威力（{@code explosionSize}）。
+ */
+@Mixin(value = ExplosionIC2.class, remap = false)
 public class IC2ExplosionMixin {
 
     static {
         EZNuclear.LOG.info("[EZNuclear] IC2ExplosionMixin loaded");
     }
 
-    // Flag to allow the deferred explosion to run once without being re-cancelled
+    /** 允许本实例在延时结束后重新调用一次 {@code doExplosion} 而不再被拦截。 */
     @Unique
     private volatile boolean eznuclear_ignoreNext = false;
 
-    @Shadow
-    private net.minecraft.world.World worldObj;
+    @Shadow(remap = false)
+    private World worldObj;
 
-    @Shadow
-    private ic2.core.ExplosionIC2.Type type;
+    @Shadow(remap = false)
+    private ExplosionIC2.Type type;
 
-    @Inject(method = "doExplosion", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "doExplosion", at = @At("HEAD"), cancellable = true, remap = false)
     private void onDoExplosion(CallbackInfo ci) {
-        // Only intercept nuclear explosions; let other IC2 explosions (machines,
-        // luminators, steam generators, dynamite, etc.) proceed normally
-        if (type != ic2.core.ExplosionIC2.Type.Nuclear) {
-            // Log non-nuclear explosions at DEBUG level for diagnostics
+        // 只拦截核爆，其他 IC2 爆炸（机器、蒸汽机、炸药等）原样放行
+        if (type != ExplosionIC2.Type.Nuclear) {
             if (EZNuclear.LOG.isDebugEnabled()) {
-                net.minecraft.world.Explosion self = (net.minecraft.world.Explosion) (Object) this;
-                int dim = (worldObj != null) ? worldObj.provider.dimensionId : -1;
+                Explosion self = (Explosion) (Object) this;
                 EZNuclear.LOG.debug(
-                    "[EZNuclear] Skipping non-nuclear IC2 explosion: type={}, pos=({},{},{}), dim={}, power={}",
+                    "[EZNuclear] Skipping non-nuclear IC2 explosion: type={}, pos=({},{},{}), dim={}",
                     type,
-                    (int) self.explosionX,
-                    (int) self.explosionY,
-                    (int) self.explosionZ,
-                    dim,
-                    self.explosionSize);
+                    (int) Math.floor(self.explosionX),
+                    (int) Math.floor(self.explosionY),
+                    (int) Math.floor(self.explosionZ),
+                    worldObj != null ? worldObj.provider.dimensionId : -1);
             }
             return;
         }
-        // System.out.println("[EZNuclear] IC2ExplosionMixin.onDoExplosion called");
-        // System.out.println("[EZNuclear] IC2 Explosion starting at HEAD injection");
 
-        // Check if global flag for allowing next explosion is set
-        if (PendingMeltdown.isAllowingNextExplosion()) {
-            // System.out.println("[EZNuclear] Global allowNextExplosion flag is set, proceeding with explosion");
-            PendingMeltdown.resetAllowNextExplosion(); // Reset the flag
-            return; // Allow the explosion to proceed without further processing
-        }
+        Explosion self = (Explosion) (Object) this;
+        ChunkCoordinates pos = new ChunkCoordinates(
+            (int) Math.floor(self.explosionX),
+            (int) Math.floor(self.explosionY),
+            (int) Math.floor(self.explosionZ));
+        int dimension = worldObj != null ? worldObj.provider.dimensionId : 0;
+        // IC2 自己算出来的威力，未开启覆写时沿用它
+        float nativePower = self.explosionSize;
 
-        // Try to get explosion coordinates from the parent Explosion class fields
-        int ex = 0, ey = 0, ez = 0;
-
-        try {
-            // Access the fields from the parent Explosion class
-            net.minecraft.world.Explosion thisExplosion = (net.minecraft.world.Explosion) (Object) this;
-
-            // Get coordinates from parent class Explosion fields explosionX, explosionY, explosionZ
-            // System.out.println("[EZNuclear] Trying to get coordinates from parent Explosion class");
-            try {
-                // Use the public fields from the parent Explosion class
-                ex = (int) Math.floor(thisExplosion.explosionX);
-                ey = (int) Math.floor(thisExplosion.explosionY);
-                ez = (int) Math.floor(thisExplosion.explosionZ);
-            } catch (Exception directAccessException) {
-                EZNuclear.LOG.warn("[EZNuclear] Direct field access failed: " + directAccessException.getMessage());
-                // System.out.println("[EZNuclear] Direct field access failed, trying reflection on parent class");
-                // If direct access fails, try using reflection
-                try {
-                    java.lang.reflect.Field xField = thisExplosion.getClass()
-                        .getDeclaredField("explosionX");
-                    xField.setAccessible(true);
-                    ex = (int) Math.floor(xField.getDouble(thisExplosion));
-                } catch (Exception ignored) {}
-
-                try {
-                    java.lang.reflect.Field yField = thisExplosion.getClass()
-                        .getDeclaredField("explosionY");
-                    yField.setAccessible(true);
-                    ey = (int) Math.floor(yField.getDouble(thisExplosion));
-                } catch (Exception ignored) {}
-
-                try {
-                    java.lang.reflect.Field zField = thisExplosion.getClass()
-                        .getDeclaredField("explosionZ");
-                    zField.setAccessible(true);
-                    ez = (int) Math.floor(zField.getDouble(thisExplosion));
-                } catch (Exception ignored) {}
-            }
-
-        } catch (Exception e) {
-            EZNuclear.LOG.warn("[EZNuclear] Exception while trying to get coordinates: " + e.getMessage());
-            // System.out.println("[EZNuclear] Exception while trying to get coordinates: " + e.getMessage());
-            // e.printStackTrace();
-        }
-
-        ChunkCoordinates pos = new ChunkCoordinates(ex, ey, ez);
-        // System.out.println("[EZNuclear] Final explosion position: " + pos);
-
-        // Check if IC2 explosions are disabled in config
+        // 1) 总开关优先：即使有残留的放行令牌，也不允许 IC2 核爆真的发生
         if (!Config.IC2Explosion) {
-            // System.out.println("[EZNuclear] IC2 explosions disabled in config");
-            // Even if explosion is disabled, still send the message to players
-            MinecraftServer server = FMLCommonHandler.instance()
-                .getMinecraftServerInstance();
-            if (server != null) {
-                if (!server.isSinglePlayer()) {
-                    List<EntityPlayerMP> players = server.getConfigurationManager().playerEntityList;
-                    for (EntityPlayerMP p : players) {
-                        GTUtility.sendChatToPlayer(p, translateToLocal("info.ezunclear"));
-                    }
-                } else {
-                    // For single player, try to send message to client
-                    MessageUtils.sendToSinglePlayer("info.ezunclear");
-                }
-
-                // Schedule the second message after delay using PendingMeltdown system
-                PendingMeltdown.schedule(pos, () -> {
-                    MinecraftServer srv = FMLCommonHandler.instance()
-                        .getMinecraftServerInstance();
-                    if (srv != null) {
-                        if (!srv.isSinglePlayer()) {
-                            List<EntityPlayerMP> players = srv.getConfigurationManager().playerEntityList;
-                            for (EntityPlayerMP p : players) {
-                                GTUtility.sendChatToPlayer(p, translateToLocal("info.ezunclear.preventexplosion"));
-                            }
-                        } else {
-                            MessageUtils.sendToSinglePlayer("info.ezunclear.preventexplosion");
-                        }
-                    }
-                }, Config.explosionDelaySeconds * 1000L);
-            }
-
+            PendingMeltdown.clearAllowExplosion(pos, dimension);
+            MessageUtils.broadcast(Constants.MSG_EASY_NUCLEAR);
+            PendingMeltdown.schedule(
+                pos,
+                () -> MessageUtils.broadcast(Constants.MSG_PREVENT_EXPLOSION),
+                Config.explosionDelaySeconds * 1000L,
+                dimension);
             ci.cancel();
             return;
         }
 
-        // If this is the deferred invocation, allow it to proceed once
+        // 2) 手动触发时本模组自己创建的那一次爆炸
+        if (PendingMeltdown.consumeAllowExplosion(pos, dimension)) {
+            return;
+        }
+
+        // 3) 延时结束后的自我回调
         if (eznuclear_ignoreNext) {
-            // System.out.println("[EZNuclear] Allowing deferred explosion to proceed");
             eznuclear_ignoreNext = false;
             return;
         }
 
-        // Check if this position was recently manually triggered to prevent re-scheduling
-        int dimension = 0;
-        if (worldObj != null) {
-            dimension = worldObj.provider.dimensionId;
+        // 4) 该位置已经有排队中的爆炸，吞掉这次重复触发
+        if (PendingMeltdown.isExplosionPending(pos, dimension)) {
+            ci.cancel();
+            return;
         }
 
-        // Check if this position has recently had a manual trigger to prevent duplicate processing
-        // System.out.println("[EZNuclear] Checking if position " + pos + " should be ignored, dimension: " +
-        // dimension);
+        // 5) 该位置刚被处理过（连锁反应），按原逻辑立即爆炸
         if (PendingMeltdown.shouldIgnoreExplosionAt(pos, dimension)) {
-            // System.out.println(
-            // "[EZNuclear] Position " + pos
-            // + " had recent manual trigger, skipping IC2 explosion to prevent duplicate");
-            return; // Skip processing for this position
-        } else {
-            // System.out.println("[EZNuclear] Position " + pos + " passed ignore check, continuing with processing");
+            return;
         }
 
-        // Only run on server side -- use server global instead of shadowing world
-        MinecraftServer server = FMLCommonHandler.instance()
-            .getMinecraftServerInstance();
-        if (server == null) return;
-
-        // Send initial message to players (run on server thread directly)
-        try {
-            server.getConfigurationManager()
-                .sendChatMsg(new ChatComponentTranslation("info.ezunclear"));
-        } catch (Throwable t) {
-            // t.printStackTrace();
+        // 仅服务端处理；专用客户端上服务器实例为 null
+        if (FMLCommonHandler.instance()
+            .getMinecraftServerInstance() == null) {
+            return;
         }
 
-        // Check if manual trigger is required
+        MessageUtils.broadcast(Constants.MSG_EASY_NUCLEAR);
+
         if (Config.requireCommandToExplode) {
-            // System.out.println("[EZNuclear] Manual trigger required, cancelling explosion");
-            // Cancel immediate explosion and mark for manual trigger
+            // 取消即时爆炸，等玩家输入指令后再触发；
+            // 开启覆写时用 IC2ManualExplosivePower，否则沿用 IC2 自己的威力
             ci.cancel();
+            PendingMeltdown.markManualTriggerWithPower(
+                pos,
+                dimension,
+                Config.isIC2PowerOverridden() ? Config.IC2ManualExplosivePower : nativePower);
+            return;
+        }
 
-            // Use fixed power value from configuration
-            double power = Config.IC2ExplosionPower;
-            // System.out.println("[EZNuclear] Using fixed power from configuration: " + power);
-
-            // Get dimension from the world
-            int dimensionId = 0;
-            if (worldObj != null) {
-                dimensionId = worldObj.provider.dimensionId;
-            }
-
-            // Mark this position for manual trigger with stored power and dimension
-            PendingMeltdown.markManualTriggerWithPower(pos, dimensionId, power);
-        } else {
-            // System.out.println("[EZNuclear] Auto-trigger mode, scheduling explosion after delay");
-            // Cancel immediate explosion and schedule the real one after delay
-            ci.cancel();
-
-            // Use PendingMeltdown system for consistency
+        // 取消即时爆炸，延时后触发
+        ci.cancel();
+        PendingMeltdown.markExplosionPending(pos, dimension);
+        final int x = pos.posX;
+        final int y = pos.posY;
+        final int z = pos.posZ;
+        if (Config.isIC2PowerOverridden()) {
+            // 覆写威力：延时后按 IC2ManualExplosivePower 重新制造一次爆炸
             PendingMeltdown.schedule(pos, () -> {
-                // System.out.println(
-                // "[EZNuclear] Delay completed, sending interaction message and triggering explosion at position: "
-                // + pos);
-                MinecraftServer s = FMLCommonHandler.instance()
-                    .getMinecraftServerInstance();
-                if (s != null) {
-                    try {
-                        s.getConfigurationManager()
-                            .sendChatMsg(new ChatComponentTranslation("info.ezunclear.interact"));
-                    } catch (Throwable t) {
-                        // t.printStackTrace();
-                    }
-
-                    // Set flag so the next doExplosion invocation is allowed through
-                    eznuclear_ignoreNext = true;
-
-                    // Invoke the original method on the target instance
-                    try {
-                        ((ic2.core.ExplosionIC2) (Object) this).doExplosion();
-                    } catch (Throwable t) {
-                        // t.printStackTrace();
-                    }
+                MessageUtils.broadcast(Constants.MSG_OH_NO);
+                PendingMeltdown
+                    .createAndExecuteIC2ExplosionAt(x, y, z, dimension, (float) Config.IC2ManualExplosivePower);
+            }, Config.explosionDelaySeconds * 1000L, dimension);
+        } else {
+            // 原生威力：延时后在同一个实例上重新调用 doExplosion
+            PendingMeltdown.schedule(pos, () -> {
+                MessageUtils.broadcast(Constants.MSG_OH_NO);
+                eznuclear_ignoreNext = true;
+                try {
+                    ((ExplosionIC2) (Object) this).doExplosion();
+                } catch (Throwable t) {
+                    EZNuclear.LOG.error("[EZNuclear] Failed to run deferred IC2 nuclear explosion", t);
                 }
-            }, Config.explosionDelaySeconds * 1000L);
+            }, Config.explosionDelaySeconds * 1000L, dimension);
         }
     }
 }

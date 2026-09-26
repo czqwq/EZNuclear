@@ -7,5 +7,8 @@
   "target": "@env(DEFAULT)",
   "mixins": [],
   "client": [],
-  "server": []
+  "server": [],
+  "injectors": {
+    "defaultRequire": 1
+  }
 }

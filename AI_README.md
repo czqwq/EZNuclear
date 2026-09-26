@@ -23,8 +23,10 @@ EZNuclear是一个Minecraft模组，专门用于管理和控制IndustrialCraft 2
 - **IC2爆炸控制**：`IC2Explosion` - 启用/禁用IC2核反应堆爆炸
 - **DE爆炸控制**：`DEExplosion` - 启用/禁用Draconic Evolution反应堆爆炸
 - **手动触发需求**：`requireCommandToExplode` - 要求玩家使用命令手动触发爆炸
+- **触发权限**：`TriggerRequireOP` - 默认 true，开启时只有 OP 才能用触发指令引爆；关闭时任何人都能触发（单人/局域网房主始终允许）
 - **延迟时间**：`explosionDelaySeconds` - 配置爆炸前的延迟时间（秒）
-- **爆炸威力**：`IC2ExplosionPower` / `DEExplosionPower` - 配置爆炸的威力值
+- **IC2 威力覆写**：`IC2ManualExplosiveOverride` / `IC2ManualExplosivePower` - IC2 侧开关与威力（1~60，默认读取 IC2 配置的 `protection/nukeExplosionPowerLimit`，读不到则 20）
+- **DE 威力覆写**：`DEManualExplosiveOverride` / `DEManualExplosivePower` - DE 侧开关与威力（1~50），默认关闭即沿用 DE 燃料威力
 
 ### 5. 消息通知系统
 - **预警告**：在爆炸前发送"核电，轻而易举啊！"消息通知玩家
@@ -42,7 +44,6 @@ EZNuclear是一个Minecraft模组，专门用于管理和控制IndustrialCraft 2
 - structurelib
 - dreamcraft
 - gregtech
-- BrandonsCore
 - Draconic Evolution
 
 ## 使用说明
@@ -56,6 +57,7 @@ EZNuclear是一个Minecraft模组，专门用于管理和控制IndustrialCraft 2
 ### 手动触发爆炸
 - 当`requireCommandToExplode`设置为true时，需要玩家在聊天中输入"坏了坏了"来手动触发已计划的爆炸
 - 输入"核电，轻而易举啊！"可以触发所有已计划的爆炸
+- `TriggerRequireOP`为true时（默认），只有 OP 可以使用这两个指令；设为 false 则任何人都能触发。单人游戏与局域网房主始终允许
 
 ### 配置调整
 编辑配置文件以调整以下参数：
@@ -67,8 +69,11 @@ EZNuclear是一个Minecraft模组，专门用于管理和控制IndustrialCraft 2
 ## 技术实现
 
 该模组使用Mixin技术注入到IC2和DE的核心类中，通过拦截关键方法来控制爆炸行为。主要的注入点包括：
-- `ic2.core.ExplosionIC2` - 控制IC2爆炸
-- `com.brandon3055.draconicevolution.common.tileentities.multiblocktiles.reactor.TileReactorCore` - 控制DE反应堆爆炸
+- `ic2.core.ExplosionIC2#doExplosion` - 控制IC2爆炸
+- `com.brandon3055.draconicevolution.common.tileentities.multiblocktiles.reactor.TileReactorCore#goBoom` - 控制DE反应堆爆炸
+
+所有状态（延时任务、手动引信、放行令牌、去重标记）都由 `com.czqwq.EZNuclear.data.PendingMeltdown` 统一管理，
+以 `(x, y, z, 维度)` 为 key，任务在服务器 tick 线程中执行。
 
 ## 适用版本
 
@@ -77,6 +82,8 @@ EZNuclear是一个Minecraft模组，专门用于管理和控制IndustrialCraft 2
 
 ## 注意事项
 
-- IC2核反应堆在爆炸被阻止后会被移除
-- 配置中的爆炸威力值只在手动触发模式下生效
-- 请确保服务器有足够的权限运行此模组，因为它会修改游戏的核心行为
+- IC2核反应堆在爆炸被阻止后仍会被移除：IC2 在调用爆炸前就已经清空了反应堆并移除了核心与腔体方块
+- 默认不覆写威力：本模组触发的爆炸沿用游戏原生威力（DE 按燃料计算，约 2~20；IC2 使用其自身数值）
+- 需要固定威力时打开对应侧开关并用 `IC2ManualExplosivePower` / `DEManualExplosivePower` 指定威力（1~50）
+- 旧的 `IC2ExplosionPower` / `DEExplosionPower` 已被上面的配置取代，老配置文件里的这两项不再生效
+- 触发指令默认需要 OP 权限，避免任意玩家引爆全服已排队的爆炸

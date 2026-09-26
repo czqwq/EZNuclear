@@ -2,4 +2,5 @@
 info.ezunclear=Nuclear,EZ！
 info.ezunclear.interact=oh,no!
 info.ezunclear.preventexplosion=[EZNuclear]Successfully intercepted an explosion
+info.ezunclear.nopermission=[EZNuclear]You are not allowed to trigger nuclear explosions
 
